@@ -1,0 +1,13 @@
+cargo-features = ["edition"]
+
+[package]
+name = "quickblocks-bounty"
+version = "0.1.0"
+authors = ["Andrew Plaza <aplaza@liquidthink.net>"]
+edition = '2018'
+
+[dependencies]
+ethereum-types = "0.3.2"
+wu-diff = "0.1.0"
+web3 = "0.3.1"
+tokio-core = "0.1.17"
