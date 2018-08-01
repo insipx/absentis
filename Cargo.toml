@@ -7,7 +7,6 @@ authors = ["Andrew Plaza <aplaza@liquidthink.net>"]
 edition = '2018'
 
 [dependencies]
-ethereum-types = "0.3.2"
 wu-diff = "0.1.0"
 tokio = "0.1.7"
 hyper = "*"
@@ -25,3 +24,7 @@ env_logger = "0.5.11"
 regex = "*"
 bytes = "*"
 futures = "0.1.23"
+
+[dependencies.ethereum-types]
+version = "0.3.2"
+features = ["serialize"]

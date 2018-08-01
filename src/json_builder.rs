@@ -1,11 +1,12 @@
 use failure::*;
 use serde_derive::*;
 use serde_json::*;
-use crate::types::JSON_RPC_VERSION;
+use crate::types::*;
 
 #[derive(Serialize, Deserialize)]
 pub struct JsonBuilder {
-    id: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<usize>,
     jsonrpc: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     result: Option<String>,
@@ -13,6 +14,7 @@ pub struct JsonBuilder {
     method: Option<String>,
     params: Vec<Value>
 }
+
 
 #[derive(Fail, Debug)]
 pub enum JsonBuildError {
@@ -30,7 +32,7 @@ impl Default for JsonBuilder {
     fn default() -> JsonBuilder {
         JsonBuilder {
             jsonrpc: JSON_RPC_VERSION.to_string(),
-            id: 1,
+            id: None,
             result: None,
             method: None,
             params: Vec::new(), 
@@ -40,15 +42,12 @@ impl Default for JsonBuilder {
 
 
 impl JsonBuilder {
-    pub fn result<T: Into<String>>(&mut self, val: T) -> &mut Self {
-        let new = self;
-        new.result = Some(val.into());
-        new
-    }
 
-    pub fn method<T: Into<String>>(&mut self, val: T) -> &mut Self {
+    pub fn method(&mut self, val: ApiCall) -> &mut Self {
         let new = self;
-        new.method = Some(val.into());
+        let (id, method) = val.method_info();
+        new.id = Some(id);
+        new.method = Some(method.into());
         new
     }
 
@@ -63,6 +62,15 @@ impl JsonBuilder {
     }
 }
 
+impl JsonBuilder {
+    crate fn get_id(&self) -> usize {
+        self.id.expect("Should only be used by `Response Object`")
+    }
+
+    crate fn get_result(&self) -> String {
+        self.result.expect("Should never be used before a request")
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -77,7 +85,7 @@ mod tests {
            "params": [],
         }).to_string();
 
-        let json = JsonBuilder::default().method("eth_blockNumber").build().expect("Bulding JSON failed");
+        let json = JsonBuilder::default().method(ApiCall::EthBlockNumber).build().expect("Bulding JSON failed");
 
         assert_eq!(test, json);
     }

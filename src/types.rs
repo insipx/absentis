@@ -6,6 +6,36 @@ pub const JSON_RPC_VERSION: &'static str = "2.0";
 #[derive(Clone, Debug)]
 pub struct Uri(hyper::Uri);
 
+pub enum ApiCall {
+  EthBlockNumber, // eth_blockNumber
+  EthGetBlockByNumber, // eth_getBlockByNumber
+}
+
+impl ApiCall {
+
+    pub fn from_id(id: usize) -> Self {
+        match id {
+            1 => EthBlockNumber,
+            2 => EthGetBlockByNumber,
+        }
+    }
+
+    pub fn method_info(&self) -> (usize, String) {
+        match *self {
+            EthBlockNumber => (1, "eth_blockNumber"),
+            EthGetBlockByNumber => (2, "eth_getBlockByNumber"),
+        }
+    }
+}
+
+impl From<usize> for ApiCall {
+    fn from(call: usize) -> ApiCall {
+        match call {
+            1 => ApiCall::EthBlockNumber,
+            2 => ApiCall::EthGetBlockByNumber,
+        }
+    }
+}
 // String conversions should really not be used in production, they are for tests
 // TODO: Convert into errors
 impl From<Uri> for String {

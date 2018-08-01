@@ -1,7 +1,8 @@
 use failure::*;
+use crate::json_builder::JsonBuildError;
 
 #[derive(Debug, Fail)]
-pub enum NodeError {
+pub enum RpcError {
     #[fail(display = "TLS Connection Error")]
     TlsConnectionError(#[fail(cause)] hyper_tls::Error),
     #[fail(display = "Failed to parse URI from parts")]
@@ -14,29 +15,36 @@ pub enum NodeError {
     InvalidHeaderValue,
     #[fail(display = "Tokio BlockError")]
     BlockError(#[fail(cause)] tokio::executor::current_thread::BlockError<hyper::error::Error>),
+    #[fail(display = "Json Build Error")]
+    JsonError(#[fail(cause)] JsonBuildError)
 }
 
-impl From<hyper_tls::Error> for NodeError {
-    fn from(err: hyper_tls::Error) -> NodeError {
-        NodeError::TlsConnectionError(err)
+impl From<JsonBuildError> for RpcError {
+    fn from(err: JsonBuildError) -> RpcError {
+        RpcError::JsonError(err)
     }
 }
 
-impl From<http::uri::InvalidUriParts> for NodeError {
-    fn from(err: http::uri::InvalidUriParts) -> NodeError {
-        NodeError::FromPartsUrlParseError(err)
+impl From<hyper_tls::Error> for RpcError {
+    fn from(err: hyper_tls::Error) -> RpcError {
+        RpcError::TlsConnectionError(err)
     }
 }
 
-impl From<http::uri::InvalidUri> for NodeError {
-    fn from(err: http::uri::InvalidUri) -> NodeError {
-        NodeError::UrlParseError(err)
+impl From<http::uri::InvalidUriParts> for RpcError {
+    fn from(err: http::uri::InvalidUriParts) -> RpcError {
+        RpcError::FromPartsUrlParseError(err)
     }
 }
 
-impl From<serde_json::error::Error> for NodeError {
-    fn from(err: serde_json::error::Error) -> NodeError {
-        NodeError::JsonSerializeError(err)
+impl From<http::uri::InvalidUri> for RpcError {
+    fn from(err: http::uri::InvalidUri) -> RpcError {
+        RpcError::UrlParseError(err)
     }
 }
 
+impl From<serde_json::error::Error> for RpcError {
+    fn from(err: serde_json::error::Error) -> RpcError {
+        RpcError::JsonSerializeError(err)
+    }
+}
