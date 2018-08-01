@@ -61,7 +61,7 @@ pub fn get_latest_block(conf: &Configuration) -> Result<impl Future<Item=(), Err
     }).map(|res| {
         println!("Something");
     }).map_err(|err| {
-        panic!("fuck");
+        panic!("TODO");
     }))
 }
 
@@ -107,7 +107,7 @@ mod tests {
         //pub fn get_latest_block(conf: Configuration) -> Result<(), Error>  {
         let conf = Configuration::from_default().expect("Configuration error");
         debug!("API_KEY: {}", conf.api_key());
-        let res = rt::run(get_latest_block(&conf).expect("fuck"));
+        let res = rt::run(get_latest_block(&conf).expect("TODO"));
 /*
         match res {
             Ok(v) => {
