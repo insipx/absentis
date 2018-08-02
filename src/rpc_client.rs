@@ -17,8 +17,8 @@ use crate::err::RpcError;
 // not all methods are defined on the client
 // just the ones needed for the bounty 
 pub trait EthRpcClient {
-    fn getBlockNumber(&self) -> Box<dyn Future<Item=ResponseObject, Error=Error>>;
-    fn getBlockByNumber(&self) -> Box<dyn Future<Item=ResponseObject, Error=Error>>;
+    fn getBlockNumber(&self) -> Box<dyn Future<Item=ResponseObject, Error=Error> + Send>;
+    fn getBlockByNumber(&self) -> Box<dyn Future<Item=ResponseObject, Error=Error> + Send>;
 }
 
 pub struct InfuraClient {
@@ -57,7 +57,7 @@ impl InfuraClient  {
                 res.into_body().concat2()
             }).map_err(|e| e.into())
             .and_then(|json| {
-                futures::future::result(ResponseObject::from_bytes(json.into_bytes()))
+                futures::future::result(ResponseObject::from_bytes(json.into_bytes()).map_err(|e| e.into()))
             })
     }
 
@@ -77,10 +77,10 @@ impl InfuraClient  {
     }
 }
 
+// TODO build a better macro that is clearer #p3
 macro_rules! rpc_call {
     ($call:ident, $sel: ident) => ({
-        match JsonBuilder::default()
-            .method(ApiCall::$call).build().map_err(|e| futures::future::err(e.into())) {
+        match JsonBuilder::default().method(ApiCall::$call).build().map_err(|e| futures::future::err(e.into())) {
                 Ok(j) => Box::new($sel.do_post(j)),
                 Err(e) => Box::new(e)
             }
@@ -88,12 +88,12 @@ macro_rules! rpc_call {
 }
 
 impl EthRpcClient for InfuraClient {
-    fn getBlockNumber(&self) -> Box<dyn Future<Item=ResponseObject, Error = Error>> {
-        rpc_call!(EthBlockNumber, self)
+    fn getBlockNumber(&self) -> Box<dyn Future<Item=ResponseObject, Error = Error> + Send> {
+        return rpc_call!(EthBlockNumber, self);
     }
 
-    fn getBlockByNumber(&self) -> Box<Future<Item=ResponseObject, Error = Error>> {
-        rpc_call!(EthGetBlockByNumber, self)
+    fn getBlockByNumber(&self) -> Box<Future<Item=ResponseObject, Error = Error> + Send> {
+        return rpc_call!(EthGetBlockByNumber, self);
     }
 }
 
@@ -109,22 +109,38 @@ pub struct NodeClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use log::*;
     use regex::Regex;
- 
+    use std::sync::{Once, ONCE_INIT};
+    use env_logger;
+
     #[test]
     fn it_should_get_the_latest_block() {
+        env_logger::try_init();
         //pub fn get_latest_block(conf: Configuration) -> Result<(), Error>  {
-        let conf = Configuration::from_default().expect("Configuration error");
-        debug!("API_KEY: {}", conf.api_key());
-        let res = rt::run(get_latest_block(&conf).expect("TODO"));
+        let client = InfuraClient::new().expect("Error building client!");
+        
+        let task = client.getBlockNumber().map_err(|err: failure::Error| { 
+            error!("ERROR: {:?}", err);
+            error!("ERROR: {:?}", err.cause());
+            error!("Backtrace: {:?}", err.backtrace());
+            panic!("Failed due to error");
+        }).and_then(|res| {
+            println!("RES: {:#?}", res);
+            Ok(())
+        });
+            
+        /* let rt = Runtime::new();
+         * rt.block_on(fut);
+         */
+        let mut rt = tokio::runtime::Runtime::new().expect("Could not construct tokio runtime");
+        rt.block_on(task);
 /*
+        let res = client.getBlockNumber().wait();
         match res {
-            Ok(v) => {
-                debug!("RES: {:#?}", v);
-            },
+            Ok(ref v) => info!("RES: {:#?}", v),
             Err(e) => {
-                error!("Error: {}", e);
-                error!("API_KEY: {}", conf.api_key());
+                error!("E: {:#?}", e);
                 error!("Cause: {:#?}", e.cause());
                 panic!("Test failed due to error");
             }
@@ -134,9 +150,10 @@ mod tests {
 
     #[test]
     fn it_should_build_uri() {
+        env_logger::try_init();
         let conf = Configuration::from_default().expect("Configuration error");
         let re = Regex::new(r"https://mainnet.infura.io/[a-zA-Z0-9]{32}").expect("Regex creation failed");
-        let uri: Uri = match build_request_uri(conf.api_key()){
+        let uri: Uri = match InfuraClient::build_request_uri(conf.api_key()){
             Ok(u) => u.into(),
             Err(e) => {
                 error!("Error: {}", e);
@@ -144,7 +161,7 @@ mod tests {
             }
         };
 
-        println!("URI: {:#?}", String::from(uri.clone()));
+        info!("URI: {:#?}", String::from(uri.clone()));
         assert!(re.is_match(&String::from(uri.clone())));
     }
 }

@@ -87,16 +87,8 @@ impl Configuration {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Once, ONCE_INIT};
     use env_logger;
-    
-    static INIT: Once = ONCE_INIT;
-    fn setup() {
-        INIT.call_once(|| {
-            env_logger::init();
-        });
-    }
-/* this test tends to screw things up
+   /* this test tends to screw things up
     #[test]
     fn it_should_create_new_default_config() {
         setup();
@@ -106,7 +98,7 @@ mod tests {
 */
     #[test]
     fn it_should_return_default_path() {
-        setup();
+        env_logger::try_init();
         let path = Configuration::default_path();
         let path = match path {
             Ok(p) => p,
@@ -121,11 +113,11 @@ mod tests {
 
     #[test]
     fn it_should_return_config_from_default_path() {
-        setup();
+        env_logger::try_init();
         let conf = Configuration::from_default();
         match conf {
             Ok(c) =>  {
-                debug!("Config: {:?}", c);
+                info!("Config: {:?}", c);
             },
             Err(e) => {
                 error!("Error in test: {}", e);

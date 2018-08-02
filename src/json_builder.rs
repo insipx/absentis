@@ -1,9 +1,11 @@
 use failure::*;
 use serde_derive::*;
 use serde_json::*;
+use colored::Colorize;
+use log::*;
 use crate::types::*;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct JsonBuilder {
     #[serde(skip_serializing_if = "Option::is_none")]
     id: Option<usize>,
@@ -19,7 +21,15 @@ pub struct JsonBuilder {
 #[derive(Fail, Debug)]
 pub enum JsonBuildError {
     #[fail(display = "Error building JSON Object")]
-    SerializationError(#[fail(cause)] serde_json::error::Error)
+    SerializationError(#[fail(cause)] serde_json::error::Error),
+    #[fail(display = "Hyper Error while building Json Response Object")]
+    HyperError(#[fail(cause)] hyper::error::Error)
+}
+
+impl From<hyper::error::Error> for JsonBuildError {
+    fn from(err: hyper::error::Error) -> JsonBuildError {
+        JsonBuildError::HyperError(err)
+    }
 }
 
 impl From<serde_json::error::Error> for JsonBuildError {
@@ -58,6 +68,8 @@ impl JsonBuilder {
     }
 
     pub fn build(&self) -> std::result::Result<String, JsonBuildError> {
+        debug!("{}: {:?}","JSON Response Object".cyan().bold(), self);
+        debug!("{}: {:?}", "JSON Object, SERIALIZED".yellow().bold(), serde_json::to_string(self)?);
         Ok(serde_json::to_string(self)?)
     }
 }
@@ -75,9 +87,10 @@ impl JsonBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use env_logger;
     #[test]
     fn it_should_create_json() {
-        
+        env_logger::try_init();
         let test = json!({
            "id": 1,
            "jsonrpc": "2.0",
@@ -86,7 +99,7 @@ mod tests {
         }).to_string();
 
         let json = JsonBuilder::default().method(ApiCall::EthBlockNumber).build().expect("Bulding JSON failed");
-
+        info!("{}:{:?}", "JSON OBJECT".cyan().bold(), json);
         assert_eq!(test, json);
     }
 }
