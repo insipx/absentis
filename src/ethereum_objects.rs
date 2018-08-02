@@ -17,7 +17,7 @@ pub enum ResponseObject {
 
 impl ResponseObject {
     pub fn new(body: String) -> std::result::Result<Self, JsonBuildError> {
-        debug!("{}: {:#?}", "JSON Response Result Object".cyan(), json.get_result().yellow());
+        debug!("{}: {:#?}", "JSON Response Result Object".cyan(), body.yellow());
         let json: JsonBuilder = serde_json::from_str(&body)?;
         match ApiCall::from_id(json.get_id()) {
             EthBlockNumber => Ok(ResponseObject::EthBlockNumber(serde_json::from_str(&json.get_result())?)),
@@ -26,7 +26,7 @@ impl ResponseObject {
     }
 
     pub fn from_bytes(mut body: bytes::Bytes) -> std::result::Result<Self, JsonBuildError> {
-        debug!("{}: {:#?}", "JSON Response Result Object".cyan(), json.get_result().yellow());
+        debug!("{}: {:#?}", "JSON Response Result Object".cyan(), std::str::from_utf8(&*body).yellow());
         let json: JsonBuilder = serde_json::from_slice(&body.to_vec())?;
         match ApiCall::from_id(json.get_id()) {
             EthBlockNumber => Ok(ResponseObject::EthBlockNumber(serde_json::from_str(&json.get_result())?)),
@@ -76,4 +76,11 @@ struct Transaction {
   gasPrice: usize,
   gas: usize,
   input: String,
+}
+
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn it_should_
 }
