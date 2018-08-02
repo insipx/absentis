@@ -16,7 +16,15 @@ pub enum RpcError {
     #[fail(display = "Tokio BlockError")]
     BlockError(#[fail(cause)] tokio::executor::current_thread::BlockError<hyper::error::Error>),
     #[fail(display = "Json Build Error")]
-    JsonError(#[fail(cause)] JsonBuildError)
+    JsonError(#[fail(cause)] JsonBuildError),
+    #[fail(display = "A Networking Error Occured")]
+    Net(#[fail(cause)] hyper::error::Error)
+}
+
+impl From<hyper::error::Error> for RpcError {
+    fn from(err: hyper::error::Error) -> RpcError {
+        RpcError::Net(err)
+    }
 }
 
 impl From<JsonBuildError> for RpcError {

@@ -1,23 +1,24 @@
 //! Asynchronous JSON-RPC clients for use with Infura, and Ethereum Nodes (Geth, Parity, Etc)
 use log::*;
 use failure::*;
+use futures::{Poll, Async, Future};
 use hyper::{Client, Uri as HyperUri, Method, Request};
-use hyper::rt::{self, Future, Stream};
+use hyper::rt::{self, Stream};
 use hyper_tls::HttpsConnector;
 use hyper::client::{HttpConnector, ResponseFuture};
 use hyper::header::HeaderValue;
 use std::io::Write;
 use crate::types::*;
 use crate::conf::Configuration;
-use crate::ethereum_objects::ResponseObject;
+use crate::ethereum_objects::{ResponseObject};
 use crate::json_builder::JsonBuilder;
 use crate::err::RpcError;
 
 // not all methods are defined on the client
 // just the ones needed for the bounty 
 pub trait EthRpcClient {
-    fn getBlockNumber(&self) -> Box<dyn Future<Item = ResponseObject, Error = Error>>;
-    fn getBlockByNumber(&self) -> Box<dyn Future<Item = ResponseObject, Error = RpcError>>;
+    fn getBlockNumber(&self) -> Box<dyn Future<Item=ResponseObject, Error=Error>>;
+    fn getBlockByNumber(&self) -> Box<dyn Future<Item=ResponseObject, Error=Error>>;
 }
 
 pub struct InfuraClient {
@@ -40,28 +41,28 @@ impl InfuraClient  {
         )
     }
 
-    fn do_post(&self, json: String) -> Result<ResponseFuture, Error>  {
+    fn post_request(&self, json: String) -> ResponseFuture {
         let mut req = Request::new(hyper::Body::from(json));
         *req.method_mut() = Method::POST;
         *req.uri_mut() = self.uri();
-        req.headers_mut().insert("Content-Type", HeaderValue::from_str("application/json")?);
-        Ok(self.client.request(req))
+        
+        req.headers_mut().insert("Content-Type", HeaderValue::from_static(JSON_APP_HEADER));
+        self.client.request(req)
+    }
 
-/*
-      .and_then(|res| {
-        println!("POST: {}", res.status());
-        res.into_body().for_each(|chunk| {
-            std::io::stdout().write_all(&chunk)
-                .map_err(|e| panic!("Example expects stdout"))
-        });
-      })
-    
-    Ok(())
-    */
-  }
+    fn do_post(&self, json: String) -> impl Future<Item = ResponseObject, Error = Error> {
+        self.post_request(json)
+            .and_then(|res| {
+                assert_eq!(res.status(), hyper::StatusCode::OK);
+                res.into_body().concat2()
+            }).map_err(|e| e.into())
+            .and_then(|json| {
+                futures::future::result(ResponseObject::from_bytes(json.into_bytes()))
+            })
+    }
 
-    fn do_get(&self, json: String) -> Result<ResponseFuture, Error> {
-        Ok(self.client.get(self.uri()))
+    fn do_get(&self, json: String) -> ResponseFuture {
+        self.client.get(self.uri())
     }
 
     fn uri(&self) -> HyperUri {
@@ -76,43 +77,24 @@ impl InfuraClient  {
     }
 }
 
+macro_rules! rpc_call {
+    ($call:ident, $sel: ident) => ({
+        match JsonBuilder::default()
+            .method(ApiCall::$call).build().map_err(|e| futures::future::err(e.into())) {
+                Ok(j) => Box::new($sel.do_post(j)),
+                Err(e) => Box::new(e)
+            }
+    })
+}
+
 impl EthRpcClient for InfuraClient {
-    fn getBlockNumber(&self) -> Box<dyn Future<Item=ResponseObject, Error = Error >> {
-
-        let json = JsonBuilder::default().method(ApiCall::EthBlockNumber).build();
-        match json {
-            Ok(j) => {
-
-                Box::new(self.do_post(j).unwrap_or_else(|e| futures::future::err(e)).map(|res| {
-                    assert_eq!(res.status(), hyper::StatusCode::OK);
-                    ResponseObject::new(res.body())
-                }))
-            },
-            Err(e) => Box::new(futures::future::err(e.into()))
-        }
+    fn getBlockNumber(&self) -> Box<dyn Future<Item=ResponseObject, Error = Error>> {
+        rpc_call!(EthBlockNumber, self)
     }
 
-    fn getBlockByNumber(&self) -> Box<Future<Item=ResponseObject, Error = RpcError>> {
-        unimplemented!();
+    fn getBlockByNumber(&self) -> Box<Future<Item=ResponseObject, Error = Error>> {
+        rpc_call!(EthGetBlockByNumber, self)
     }
-}
-
-struct ResponseObjectFuture {
-    inner: ResponseFuture
-}
-
-impl Future for ResponseObjectFuture {
-    type Item = ResponseObject;
-    type Error = Error;
-    fn poll(&mut self) -> Result<Async<Self::Item>, Self::Error> {
-        match self.inner.poll()? {
-            Async::Ready(v) => {
-            },
-            Async
-
-        }
-    }
-
 }
 
 // TODO
@@ -127,7 +109,8 @@ pub struct NodeClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    use regex::Regex;
+ 
     #[test]
     fn it_should_get_the_latest_block() {
         //pub fn get_latest_block(conf: Configuration) -> Result<(), Error>  {

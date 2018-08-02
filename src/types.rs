@@ -3,6 +3,8 @@ use std::str::FromStr;
 
 pub const MAINNET_AUTHORITY: &'static str = "https://mainnet.infura.io/";
 pub const JSON_RPC_VERSION: &'static str = "2.0";
+pub const JSON_APP_HEADER: &'static str = "application/json";
+
 #[derive(Clone, Debug)]
 pub struct Uri(hyper::Uri);
 
@@ -15,15 +17,16 @@ impl ApiCall {
 
     pub fn from_id(id: usize) -> Self {
         match id {
-            1 => EthBlockNumber,
-            2 => EthGetBlockByNumber,
+            1 => ApiCall::EthBlockNumber,
+            2 => ApiCall::EthGetBlockByNumber,
+            _ => panic!("No Id for API call found!")
         }
     }
 
     pub fn method_info(&self) -> (usize, String) {
-        match *self {
-            EthBlockNumber => (1, "eth_blockNumber"),
-            EthGetBlockByNumber => (2, "eth_getBlockByNumber"),
+        match self {
+            EthBlockNumber => (1, "eth_blockNumber".to_string()),
+            EthGetBlockByNumber => (2, "eth_getBlockByNumber".to_string()),
         }
     }
 }
@@ -33,6 +36,7 @@ impl From<usize> for ApiCall {
         match call {
             1 => ApiCall::EthBlockNumber,
             2 => ApiCall::EthGetBlockByNumber,
+            _ => panic!("No Id for API call found!")
         }
     }
 }

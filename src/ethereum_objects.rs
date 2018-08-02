@@ -1,6 +1,8 @@
 use serde_json::*;
 use serde_derive::*;
 use ethereum_types::*;
+use http::Response;
+use serde::de;
 use failure::Error;
 use crate::json_builder::JsonBuilder;
 use crate::types::ApiCall;
@@ -11,23 +13,43 @@ pub enum ResponseObject {
 }
 
 impl ResponseObject {
-    pub fn new(body: &str) -> std::result::Result<Self, Error> {
-        let json: JsonBuilder = serde_json::from_str(body)?;
+    pub fn new(body: String) -> std::result::Result<Self, Error> {
+        let json: JsonBuilder = serde_json::from_str(&body)?;
 
         match ApiCall::from_id(json.get_id()) {
             EthBlockNumber => Ok(ResponseObject::EthBlockNumber(serde_json::from_str(&json.get_result())?)),
             EthGetBlockByNumber => Ok(ResponseObject::EthGetBlockByNumber(serde_json::from_str(&json.get_result())?))
         }
     }
+
+    pub fn from_bytes(mut body: bytes::Bytes) -> std::result::Result<Self, Error> {
+        let json: JsonBuilder = serde_json::from_slice(&body.to_vec())?;
+
+        match ApiCall::from_id(json.get_id()) {
+            EthBlockNumber => Ok(ResponseObject::EthBlockNumber(serde_json::from_str(&json.get_result())?)),
+            EthGetBlockByNumber => Ok(ResponseObject::EthGetBlockByNumber(serde_json::from_str(&json.get_result())?))
+        }
+    }
+    
+    pub fn from_response(mut resp: Response<Vec<u8>>) -> std::result::Result<Self, Error> {
+        let (parts, body) = resp.into_parts();
+        let json: JsonBuilder = serde_json::from_slice(&body.to_vec())?;
+
+        match ApiCall::from_id(json.get_id()) {
+            EthBlockNumber => Ok(ResponseObject::EthBlockNumber(serde_json::from_str(&json.get_result())?)),
+            EthGetBlockByNumber => Ok(ResponseObject::EthGetBlockByNumber(serde_json::from_str(&json.get_result())?))
+        }
+    }
+
 }
 
 #[derive(Serialize, Deserialize)]
-struct BlockNumber {
+pub struct BlockNumber {
   block_number: usize,
 }
 
 #[derive(Serialize, Deserialize)]
-struct Block {
+pub struct Block {
   number: usize,
   hash: H256,
   parentHash: H256,

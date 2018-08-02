@@ -68,7 +68,7 @@ impl JsonBuilder {
     }
 
     crate fn get_result(&self) -> String {
-        self.result.expect("Should never be used before a request")
+        self.result.clone().expect("Should never be used before a request")
     }
 }
 
