@@ -1,13 +1,12 @@
 cargo-features = ["edition"]
 
 [package]
-name = "quickblocks-bounty"
+name = "absentis"
 version = "0.1.0"
 authors = ["Andrew Plaza <aplaza@liquidthink.net>"]
 edition = '2018'
 
 [dependencies]
-ethereum-types = "0.3.2"
 wu-diff = "0.1.0"
 tokio = "0.1.7"
 hyper = "*"
@@ -25,3 +24,9 @@ env_logger = "0.5.11"
 regex = "*"
 bytes = "*"
 futures = "0.1.23"
+colored = "1.6.1"
+serde-hex = { git = "https://github.com/forrest-marshall/serde-hex" }
+
+[dependencies.ethereum-types]
+version = "0.3.2"
+features = ["serialize"]
