@@ -1,13 +1,11 @@
 use log::*;
-use serde_json::*;
 use serde_derive::*;
-use serde::de::Deserializer;
+use serde_json::{self, from_str, from_slice, Error as JError, json, json_internal};
+use serde::de::{self, Deserializer, Deserialize, Visitor, SeqAccess, MapAccess};
 use serde_hex::{SerHexSeq,StrictPfx,CompactPfx};
 use ethereum_types::*;
 use colored::Colorize;
 use http::Response;
-use serde::de;
-use failure::Error;
 use crate::json_builder::{JsonBuilder, JsonBuildError};
 use crate::types::ApiCall;
 
@@ -23,54 +21,99 @@ impl ResponseObject {
         debug!("{}: {:#?}", "JSON Response Result Object".cyan(), body.yellow());
         let json: JsonBuilder = serde_json::from_str(&body)?;
         Ok(json.get_result())
-        /*
-        match ApiCall::from_id(json.get_id()) {
-            EthBlockNumber => Ok(ResponseObject::EthBlockNumber(serde_json::from_str(&json.get_result())?)),
-            EthGetBlockByNumber => Ok(ResponseObject::EthGetBlockByNumber(serde_json::from_str(&json.get_result())?))
-        }
-        */
     }
 
-    pub fn from_bytes(mut body: bytes::Bytes) -> std::result::Result<Self, JsonBuildError> {
+    pub fn from_bytes(body: bytes::Bytes) -> std::result::Result<Self, JsonBuildError> {
         debug!("{}: {}", "JSON Response Result Object".cyan().bold(), std::str::from_utf8(&*body).unwrap().yellow().bold());
+        debug!("In Function {} in file {}; line: {}", "`from_bytes`".bold().underline().bright_cyan(), file!().bold().underline(), line!().to_string().bold().bright_white().underline());
         let json: JsonBuilder = serde_json::from_slice(&body.to_vec())?;
         debug!("{}: {:?}", "JSON Response Object, Deserialized".cyan().bold(), json);
-        // debug!("{}: {}", "JSON RESULT Object, Serialized".cyan().bold(), &json.get_result().yellow().bold());
-        debug!("{}", r#"0x5cab"#);
         Ok(json.get_result())
+    }
 
-        /*
-        match ApiCall::from_id(json.get_id()) {
-            EthBlockNumber => Ok(ResponseObject::EthBlockNumber(serde_json::from_str(&json.get_result())?)),
-            EthGetBlockByNumber => Ok(ResponseObject::EthGetBlockByNumber(serde_json::from_str(&json.get_result())?))
+    pub fn to_str(&self) -> String {
+        match self {
+            ResponseObject::EthBlockNumber(_) => "EthBlockNumber".to_owned(),
+            ResponseObject::EthGetBlockByNumber(_) => "EthGetBlockByNumber".to_owned(),
+            ResponseObject::Nil => "Nil".to_owned(),
         }
-        */
     }
 }
 
+/*
+impl<'de> Deserialize<'de> for StrOrMap {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<StrOrMap, D::Error> where D: Deserializer<'de> {
+
+        #[derive(Deserialize)]
+        #[serde(field_identifier, rename_all = "lowercase")]
+        enum Field {Strinter, Map}
+        
+
+        struct StrOrMapVisitor;
+
+        impl<'de> Visitor<'de> for StrOrMapVisitor {
+            type Value = StrOrMap;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("struct StrOrMap")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<StrOrMap, V::Error> 
+            where
+                V: MapAccess<'de>
+            {
+                let mut strinter = None;
+                let mut map = None;
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::Strinter => panic!("Nope"),
+                        Field::Map => {
+                            
+                        }
+                    
+                    }
+                }
+            
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<StrOrMap, E> 
+            where
+                E: de::Error
+            {
+                let mut strinter = v.to_owned();
+                Ok(StrOrMap {
+                    strinter,
+                    map: None
+                })
+            }
+
+            // implement visit_string if visit_str is not enough
+        }
+    }
+}
+*/
 
 // #[derive(Deserialize, Serialize, Debug)]
 // struct Hex(#[serde(with="SerHex::<StrictPfx>")] [u8; 32]);
 
 //impl_serhex_bytearray!(Hex, 64);
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize)]
 pub struct Hex (
     #[serde(with ="SerHexSeq::<StrictPfx>")] 
     Vec<u8>
 );
 
 
-/*
 impl std::fmt::Debug for Hex {
     /*fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "0x{}", self.0.iter().map(|x| format!("{:x}", x)).collect::<String>())
     }*/
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{:x}", self.0)
+        let hex_str: String = self.0.iter().map(|b|  format!("{:x}", b)).collect();
+        write!(f, "0x{}", hex_str)
     }
 }
-*/
+
 /*
 impl From<[u8; 64]> for Hex {
     fn from(arr: [u8; 64]) -> Hex {
@@ -89,7 +132,7 @@ impl std::convert::AsRef<[u8]> for Hex {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Block {
-  number: usize,
+  number: Hex,
   hash: H256,
   parentHash: H256,
   nonce: H64,
@@ -99,13 +142,13 @@ pub struct Block {
   stateRoot: H256,
   receiptsRoot: H256,
   miner: H160,
-  difficulty: u64,
-  totalDifficulty: u64,
-  extraData: String,
-  size: u64,
-  gasLimit: u64,
-  gasUsed:  u64,
-  timestamp: String,
+  difficulty: Hex,
+  totalDifficulty: Hex,
+  extraData: Hex,
+  size: Hex,
+  gasLimit: Hex,
+  gasUsed:  Hex,
+  timestamp: Hex,
   transactions_objects: Option<Vec<Transaction>>,
   transactions_hashes: Option<Vec<H256>>
 } 
@@ -113,16 +156,16 @@ pub struct Block {
 #[derive(Serialize, Deserialize, Debug)]
 struct Transaction {
   hash: H256,
-  nonce: usize,
+  nonce: Hex,
   blockHash: H256,
-  blockNumber: usize,
-  transactionIndex: usize,
+  blockNumber: Hex,
+  transactionIndex: Hex,
   from: Address,
   to: Address,
-  value: u64, 
-  gasPrice: usize,
-  gas: usize,
-  input: String,
+  value: Hex, 
+  gasPrice: Hex,
+  gas: Hex,
+  input: Hex,
 }
 
 
