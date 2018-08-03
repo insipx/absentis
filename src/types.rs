@@ -29,6 +29,38 @@ impl ApiCall {
             EthGetBlockByNumber => (2, "eth_getBlockByNumber".to_string()),
         }
     }
+
+    pub fn to_str(&self) -> String {
+        match self {
+            ApiCall::EthBlockNumber => "EthBlockNumber".to_owned(),
+            ApiCall::EthGetBlockByNumber => "EthGetBlockByNumber".to_owned(),
+        }
+    }
+
+    pub fn from_id_and<F,T>(id: usize, fun: F) -> T
+        where
+            F: FnOnce(String) -> T
+    {
+        match Self::from_id(id) {
+            c @ ApiCall::EthBlockNumber => fun(c.to_str()),
+            c @ ApiCall::EthGetBlockByNumber => fun(c.to_str()),
+        }
+        
+    }
+
+/*
+    pub fn from_id_and<F,T>(id: usize, fun: F) -> Result<T, Error> 
+        where
+            F: FnOnce(String) -> Result<T, Error>
+    {
+        match Self::from_id(id) {
+            c @ ApiCall::EthBlockNumber => fun(c.to_str()),
+            c @ ApiCall::EthGetBlockByNumber => fun(c.to_str()),
+        }
+        
+    }
+
+    */
 }
 
 impl From<usize> for ApiCall {

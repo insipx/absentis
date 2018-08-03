@@ -25,6 +25,7 @@ regex = "*"
 bytes = "*"
 futures = "0.1.23"
 colored = "1.6.1"
+serde-hex = { git = "https://github.com/forrest-marshall/serde-hex" }
 
 [dependencies.ethereum-types]
 version = "0.3.2"
