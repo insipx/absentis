@@ -157,7 +157,6 @@ mod tests {
         }).and_then(|res| {
             info!("{}: {:?}","eth_getBlockByNumber".green().bold(), res);
             assert_eq!(res.to_str(), "EthGetBlockByNumber");
-            assert!(res.)
             Ok(())
         });
         let mut rt = tokio::runtime::Runtime::new().expect("Could not construct tokio runtime");

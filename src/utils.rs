@@ -48,7 +48,6 @@ macro_rules! new_err {
     })
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
