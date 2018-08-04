@@ -3,9 +3,7 @@
 mod node;
 mod ethereum_objects;
 mod conf;
-mod err;
 mod types;
-mod json_builder;
 mod rpc_client;
 
 // TODO SOMETIME BEFORE RELEASE

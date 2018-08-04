@@ -1,5 +1,5 @@
 use failure::*;
-use crate::json_builder::JsonBuildError;
+use super::jsonrpc_object::JsonBuildError;
 
 #[derive(Debug, Fail)]
 pub enum RpcError {
@@ -56,3 +56,41 @@ impl From<serde_json::error::Error> for RpcError {
         RpcError::JsonSerializeError(err)
     }
 }
+
+#[derive(Fail, Debug)]
+pub struct TypeMismatchError {
+    invalid_type: String
+}
+
+impl TypeMismatchError {
+    crate fn new(err: String) -> Self {
+        TypeMismatchError {
+            invalid_type: err
+        }
+    }
+}
+
+impl std::fmt::Display for TypeMismatchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.invalid_type)
+    }
+}
+
+#[derive(Debug, Fail)]
+pub enum ResponseBuildError {
+    #[fail(display = "Error Deserializing JSON `Result`: {}", _0)]
+    SerializationError(#[cause] serde_json::error::Error),
+    #[fail(display = "Error building Json Response Object")]
+    HyperError(#[cause] hyper::error::Error),
+    #[fail(display = "Mismatched types during build: {}", _0)]
+    MismatchedTypes(TypeMismatchError)
+}
+
+impl From<serde_json::error::Error> for ResponseBuildError {
+    fn from(err: serde_json::error::Error) -> Self {
+        ResponseBuildError::SerializationError(err)
+    }
+}
+
+
+

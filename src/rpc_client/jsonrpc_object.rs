@@ -1,17 +1,19 @@
-use failure::{Fail, Error as FError};
+//! An object that represents the JSON Data Responses and Requests to JsonRPC's
+use log::{log, debug};
+use failure::{Fail};
 use serde_derive::*;
-use serde_json::{self, from_str, from_slice, Error as JError, json, json_internal};
-use std::error::Error;
 use std::fmt;
-use serde::de::{self, Deserializer, Deserialize, Visitor, SeqAccess, MapAccess};
+use serde::de::{self, Deserializer, Deserialize, Visitor, MapAccess};
 use colored::Colorize;
-use log::*;
-use crate::types::*;
-use crate::ethereum_objects::{ResponseObject};
+use num_traits::{FromPrimitive, ToPrimitive};
+
+use crate::types::JSON_RPC_VERSION;
+use super::api_call::ApiCall;
+use super::response_object::ResponseObject;
 
 #[derive(Serialize, Debug)]
-pub struct JsonBuilder {
-    id: usize,
+pub struct JsonRpcObject {
+    id: ApiCall,
     jsonrpc: String,
     #[serde(skip_serializing)]
     result: ResponseObject,
@@ -23,10 +25,10 @@ pub struct JsonBuilder {
 
 #[derive(Fail, Debug)]
 pub enum JsonBuildError {
-    #[fail(display = "Error building JsonBuild JSON Object")]
-    SerializationError(#[fail(cause)] serde_json::error::Error),
-    #[fail(display = "Hyper Error while building Json Response Object")]
-    HyperError(#[fail(cause)] hyper::error::Error)
+    #[fail(display = "Error building JsonBuild JSON Object: {}", _0)]
+    SerializationError(#[cause] serde_json::error::Error),
+    #[fail(display = "Hyper Error while building Json Response Object: {}", _0)]
+    HyperError(#[cause] hyper::error::Error)
 }
 
 impl From<hyper::error::Error> for JsonBuildError {
@@ -41,11 +43,11 @@ impl From<serde_json::error::Error> for JsonBuildError {
     }
 }
 
-impl Default for JsonBuilder {
-    fn default() -> JsonBuilder {
-        JsonBuilder {
+impl Default for JsonRpcObject {
+    fn default() -> JsonRpcObject {
+        JsonRpcObject {
             jsonrpc: JSON_RPC_VERSION.to_string(),
-            id: 0,
+            id: ApiCall::from_usize(0).unwrap(),
             result: ResponseObject::Nil,
             method: None,
             params: Vec::new(),
@@ -53,14 +55,14 @@ impl Default for JsonBuilder {
     }
 }
 
-impl JsonBuilder {
+impl JsonRpcObject {
 
     pub fn method(&mut self, val: ApiCall) -> &mut Self {
         let new = self;
         debug!("{}: {}", "VAL".cyan().underline().bold(), val.to_str().cyan().bold());
-        let (id, method) = val.method_info();
-        debug!("ID: {}, METHOD: {}", id.to_string().underline().blue(), method.underline().blue());
-        new.id = id;
+        let method = val.method_info();
+        debug!("ID: {}, METHOD: {}", val, method.underline().blue());
+        new.id = val;
         new.method = Some(method);
         new
     }
@@ -78,9 +80,10 @@ impl JsonBuilder {
     }
 }
 
-impl JsonBuilder {
+// Getters
+impl JsonRpcObject {
     crate fn get_id(&self) -> usize {
-        self.id
+        self.id.to_usize().expect("ID Does not exist")
     }
 
     // returns a raw string literal of the result
@@ -90,14 +93,14 @@ impl JsonBuilder {
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//                                      A Note on the current Deserialization of JsonBuilder
+//                                      A Note on the current Deserialization of JsonRpcObject
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Serde-Json has a `Preserve Order` feature that is enabled on this crate: https://github.com/serde-rs/json/issues/54 
 // this means that we can be *fairly* certain that ID will be parsed before `result`. However, this is not foolproof,
 // since the order of the mapping is left up to the JSONRPC Server. In a Seq Response (array), the
 // order may be totally different as well. This essentially means that if any server in the future decides to change there API all willy-nilly
 // Lots of errors may be produced here.
-// Another option is to create an intermediate struct representation of JsonBuilder, 
+// Another option is to create an intermediate struct representation of JsonRpcObject, 
 // that 'flattens' the enum representation into one struct representation. 
 // IE:
 // ```
@@ -130,7 +133,7 @@ impl JsonBuilder {
 // This came from a SO thread here: 
 // https://stackoverflow.com/questions/45059538/how-to-deserialize-into-a-enum-variant-based-on-a-key-name
 // This way is significantly more tedious, however. It can be left up to macros, but I will leave that for a
-// future release TODO: unwrap enum into intermediate struct representation of JsonBuilder #p3
+// future release TODO: unwrap enum into intermediate struct representation of JsonRpcObject #p3
 // Another option is to use 'Struct or String' but adapt it to an enum, and map, ie 'Map or
 // String'. This requires the use of `deserializer.any()`. The implementation below follows a
 // combination of both these suggestions. (whatever worked when I came up with it)
@@ -142,22 +145,22 @@ impl JsonBuilder {
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////// - insidious //////////////////////////////////////////////
 
-impl<'de> Deserialize<'de> for JsonBuilder {
+impl<'de> Deserialize<'de> for JsonRpcObject {
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error> where D: Deserializer<'de> {
         
         #[derive(Deserialize)]
         #[serde(field_identifier, rename_all = "lowercase")]
         enum Field {Id, JsonRpc, Result, Method, Params};
 
-        struct JsonBuilderVisitor;
-        impl<'de> Visitor<'de> for JsonBuilderVisitor {
-            type Value = JsonBuilder;
+        struct JsonRpcObjectVisitor;
+        impl<'de> Visitor<'de> for JsonRpcObjectVisitor {
+            type Value = JsonRpcObject;
     
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> fmt::Result {
-                formatter.write_str("struct JsonBuilder")
+                formatter.write_str("struct JsonRpcObject")
             }
             
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<JsonBuilder, V::Error> 
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<JsonRpcObject, V::Error> 
                 where
                     V: MapAccess<'de>
             {
@@ -204,9 +207,9 @@ impl<'de> Deserialize<'de> for JsonBuilder {
                 debug!("{}: {}","ID".red().bold(), id);
 
                 let jsonrpc = jsonrpc.ok_or_else(|| de::Error::missing_field("jsonrpc"))?;
-                Ok(JsonBuilder {
+                Ok(JsonRpcObject {
                     jsonrpc,
-                    id,
+                    id: ApiCall::from_usize(id).ok_or_else(||de::Error::custom("Id does not exist"))?,
                     result,
                     method: None,
                     params: Vec::new(),
@@ -216,23 +219,18 @@ impl<'de> Deserialize<'de> for JsonBuilder {
             /* fn visit_seq */ // this function would be used if any of the Ethereum JSONRPC's
             // returned responses as positional arrays, not Objects. So far none do, so there is no
             // need to implement this as of yet.
-            // TODO: implement `visit_seq` for JsonBuilder #p3
+            // TODO: implement `visit_seq` for JsonRpcObject #p3
         }
         const FIELDS: &'static [&'static str] = &["id", "jsonrpc", "result", "method", "params"];
-        deserializer.deserialize_struct("JsonBuilder", FIELDS, JsonBuilderVisitor)
+        deserializer.deserialize_struct("JsonRpcObject", FIELDS, JsonRpcObjectVisitor)
     }
 }
-
-
-
-pub trait ToMap {
-    fn to_map(&self) -> String;
-}
-
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use log::{log, info, error, debug};
+    use serde_json::{json, json_internal};
     use env_logger;
     #[test]
     fn it_should_create_json() {
@@ -244,7 +242,7 @@ mod tests {
            "params": [],
         }).to_string();
 
-        let json = JsonBuilder::default().method(ApiCall::EthBlockNumber).build().expect("Bulding JSON failed");
+        let json = JsonRpcObject::default().method(ApiCall::EthBlockNumber).build().expect("Bulding JSON failed");
         info!("{}:{:?}", "JSON OBJECT".cyan().bold(), json);
         assert_eq!(test, json);
     }

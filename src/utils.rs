@@ -1,6 +1,4 @@
 use std::fmt::LowerHex;
-use colored::Colorize;
-
 
 crate trait IntoHexStr<T> where T: LowerHex {
     fn into_hex_str(&self) -> String;
@@ -12,9 +10,29 @@ impl<T> IntoHexStr<T> for T where T: LowerHex {
     }
 }
 
+#[macro_export]
+macro_rules! pretty_err {
+    ($err:ident) => ({
+        use colored::Colorize;
+        let err_string = format!("{}", $err);
+        error!("{}", err_string.bright_red().bold().underline());
+    })
+}
+
+#[macro_export]
+macro_rules! pretty_success {
+    ($succ:ident) => ({
+        use colored::Colorize;
+        let succ_string = format!("{}", $succ);
+        info!("{}", succ_string.bright_green().bold().underline());
+    })
+}
+
+
 #[macro_export] 
 macro_rules! err_loc {
     () => ({
+        use colored::Colorize;
         let occurred = "Occurred on".bright_red().bold().underline();
         let line_str = "line".bold().yellow().underline();
         let col_str = "col".bold().yellow().underline();
@@ -27,6 +45,8 @@ macro_rules! err_loc {
 #[macro_export]
 macro_rules! verb_err {
     ($err: ident) => ({
+    use log::{log, error};
+    use colored::Colorize;
         
         match $err {
             Ok(_) => (),
@@ -41,6 +61,7 @@ macro_rules! verb_err {
 }
 
 // a layer of 'format' for errors
+// TODO: Remove this #p2
 #[macro_export]
 macro_rules! new_err {
     ($str:expr, $($pms:expr),+ ) => ({
@@ -48,6 +69,14 @@ macro_rules! new_err {
     })
 }
 
+// expects a string and value 
+#[macro_export]
+macro_rules! mismatched_types {
+    ($expected_type: expr, $recvd_type: ident) => ({
+        let string = format!("Expected type `{}`, got `{}` in {}", $expected_type, $recvd_type, err_loc!());
+        Err(ResponseBuildError::MismatchedTypes(TypeMismatchError::new(string)))
+    })
+}
 
 #[cfg(test)]
 mod tests {
