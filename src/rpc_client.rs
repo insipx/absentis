@@ -92,7 +92,7 @@ macro_rules! rpc_call {
         }
     })
 }
-
+// write a serializer
 impl EthRpcClient for InfuraClient {
     fn getBlockNumber(&self) -> Box<dyn Future<Item=ResponseObject, Error = Error> + Send> {
         return rpc_call!(EthBlockNumber, self, []);
@@ -157,6 +157,7 @@ mod tests {
         }).and_then(|res| {
             info!("{}: {:?}","eth_getBlockByNumber".green().bold(), res);
             assert_eq!(res.to_str(), "EthGetBlockByNumber");
+            assert!(res.)
             Ok(())
         });
         let mut rt = tokio::runtime::Runtime::new().expect("Could not construct tokio runtime");

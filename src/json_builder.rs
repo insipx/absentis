@@ -23,7 +23,7 @@ pub struct JsonBuilder {
 
 #[derive(Fail, Debug)]
 pub enum JsonBuildError {
-    #[fail(display = "Error building JSON Object")]
+    #[fail(display = "Error building JsonBuild JSON Object")]
     SerializationError(#[fail(cause)] serde_json::error::Error),
     #[fail(display = "Hyper Error while building Json Response Object")]
     HyperError(#[fail(cause)] hyper::error::Error)
@@ -186,32 +186,9 @@ impl<'de> Deserialize<'de> for JsonBuilder {
                             }
                             let id = id.ok_or_else(|| de::Error::custom("Id is none! Serde did not preserve order, or \
                                                                  JSON from RPC did not respond with `id` before `result`"));
-                            // let map_or_str: ResponseObject = map.next_value()?;
-                            info!("GOT HERE");
                             let map_or_str: serde_json::Value = map.next_value()?;
-                            info!("Value {}", map_or_str);
-
-                            let inter_res = ApiCall::from_id_and(id?, |variant| {
-                                // attaches a 'key' for enum map into a serialized intermediate result
-                                let se_inter_res = format!(r#"{{  "{}":"{}"  }}"#, variant, map_or_str);
-                                debug!("{} = {}", "JSON String".red().bold(), &variant.yellow().bold());
-
-                                let res: std::result::Result<ResponseObject, JError> = serde_json::from_str(&se_inter_res);
-
-                                debug!("{}: {:#?}", "Response Serialization Result".red().bold(), res);
-                                match res {
-                                    Ok(v) => Ok(v),
-                                    Err(e) => {
-                                        error!("{:#?}", &e);
-                                        error!("{:#?}", std::error::Error::cause(&e));
-                                        error!("{:#?}", &e.description());
-                                        error!("{}: {}", "Could not deserialize eth call".magenta().bold().underline(), variant.yellow().bold());
-                                        Err(e)
-                                    }
-                                }
-                            });
-
-                            result = Some(inter_res.map_err(|e| de::Error::custom(e))?);
+                            // let res = ResponseObject::from_value(value, id)
+                            result = Some(ResponseObject::from_serde_value(map_or_str, id?).map_err(|e| de::Error::custom(e))?)
                         },
                         Field::Method => { // skip
                             /* return Err(de::Error::unknown_field("Don't deserialize 'Method'", map.next_value()?));*/

@@ -39,11 +39,11 @@ impl ApiCall {
 
     pub fn from_id_and<F,T>(id: usize, fun: F) -> T
         where
-            F: FnOnce(String) -> T
+            F: FnOnce(ApiCall) -> T
     {
         match Self::from_id(id) {
-            c @ ApiCall::EthBlockNumber => fun(c.to_str()),
-            c @ ApiCall::EthGetBlockByNumber => fun(c.to_str()),
+            c @ ApiCall::EthBlockNumber => fun(c),
+            c @ ApiCall::EthGetBlockByNumber => fun(c),
         }
         
     }
