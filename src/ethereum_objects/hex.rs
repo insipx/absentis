@@ -1,9 +1,24 @@
 //! A general, unsized, Hex type
 use serde::de::{self, Deserializer, Deserialize, Visitor};
 use hex::FromHex;
-
+use ethereum_types::Address;
+use std::ops::Deref;
 pub struct Hex (Vec<u8>);
 
+impl Deref for Hex {
+    type Target = Vec<u8>;
+
+    fn deref(&self) -> &Vec<u8> {
+        &self.0
+    }
+}
+
+
+impl From<Hex> for Address {
+    fn from(hex: Hex) -> Address {
+        Address::from(&*hex.0)
+    }
+}
 impl<'de> Deserialize<'de> for Hex {
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error> where D: Deserializer<'de> {
 
@@ -21,7 +36,7 @@ impl<'de> Deserialize<'de> for Hex {
                 let rmv_pfx = | x: &str | return x.char_indices().skip_while(|(i, x)| *i < 2).map(|(_, x)| x).collect::<String>();
                 let get_hex = | x: &str | return Vec::from_hex(x).map_err(|e| de::Error::custom(e));
                
-
+                // use 'clean_0x' from ethereum_types
                 if v.starts_with("0x") && v.len() % 2 == 0 {
                     Ok( Hex(get_hex(&rmv_pfx(v))?) )
                 

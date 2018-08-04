@@ -54,10 +54,52 @@ macro_rules! enum_number {
     }
 }
 
+// ETH id namespace == 00
+// Net id namespace == 10
+// Trace id namespace == 01
 enum_number!(ApiCall {
-    Nil = 0,
-    EthBlockNumber = 1, // eth_blockNumber
-    EthGetBlockByNumber = 2, // eth_getBlockByNumber
+    Nil                                     = 0,
+    // Eth
+    EthAccounts                             = 001,  // eth_accounts
+    EthBlockNumber                          = 002,  // eth_blockNumber
+    EthGetBlockByNumber                     = 003,  // eth_getBlockByNumber
+    EthGasPrice                             = 004,  // eth_gasPrice
+    EthGetBalance                           = 005,  // eth_getBalance
+    EthGetBlockByHash                       = 006,  // eth_getBlockByHash
+    EthGetTransactionByReceipt              = 007,  // eth_getTransactionByReceipt
+    EthGetBlockTransactionCountByHash       = 008,  // eth_getBlockTransactionCountByHash
+    EthGetBlockTransactionCountByNumber     = 009,  // eth_getBlockTransactionCountByNumber
+    EthGetCode                              = 0010, // eth_getLogs
+    EthGetLogs                              = 0011, // eth_getStorageAt
+    EthGetStorageAt                         = 0012, // eth_getTransactionByBlockHashAndIndex
+    EthGetTransactionByBlockHashAndIndex    = 0013, // eth_getTransctionByBlockNumberAndIndex
+    EthGetTransactionByBlockNumberAndIndex  = 0014, 
+    EthGetUncleByBlockNumberAndIndex        = 0015,
+    EthGetUncleByBlockHashAndIndex          = 0016,
+    EthGetUncleCountByBlockHash             = 0017,
+    EthGetUncleCountByBlockNumber           = 0018,
+    EthGetWork                              = 0019,
+    EthHashrate                             = 0020,
+    EthMining                               = 0021,
+    EthProtocolVersion                      = 0022,
+    EthSyncing                              = 0023,
+    EthGetTransactionByHash                 = 0024,
+    EthGetTransactionCount                  = 0025,
+
+    // NET
+    NetListening                            = 1001,
+    NetPeerCount                            = 1002,
+    NetVersion                              = 1003,
+
+    // TRACE (Parity only)
+    TraceCall                               = 0101,
+    TraceRawTransaction                     = 0102,
+    TraceReplayTransaction                  = 0103,
+    TraceReplayBlockTransaction             = 0104,
+    TraceBlock                              = 0105,
+    TraceFilter                             = 0106,
+    TraceGet                                = 0107,
+    TraceTransaction                        = 0108,
 });
 
 impl std::fmt::Display for ApiCall {
@@ -73,6 +115,8 @@ impl ApiCall {
         match self {
             ApiCall::EthBlockNumber => "eth_blockNumber".to_string(),
             ApiCall::EthGetBlockByNumber => "eth_getBlockByNumber".to_string(),
+            ApiCall::EthGasPrice => "eth_gasPrice".to_string(),
+            ApiCall::EthGetBalance => "eth_getBalance".to_string(),
             _=> panic!("Api Call Does not exist")
         }
     }
@@ -81,6 +125,8 @@ impl ApiCall {
         match self {
             ApiCall::EthBlockNumber => "EthBlockNumber".to_owned(),
             ApiCall::EthGetBlockByNumber => "EthGetBlockByNumber".to_owned(),
+            ApiCall::EthGasPrice => "EthGasPrice".to_owned(),
+            ApiCall::EthGetBalance => "EthGetBalance".to_owned(),
             _=> panic!("Api Call does not exist!")
         }
     }

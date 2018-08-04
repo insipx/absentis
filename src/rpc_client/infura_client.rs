@@ -7,6 +7,10 @@ use hyper::rt::{Stream};
 use hyper_tls::HttpsConnector;
 use hyper::client::{HttpConnector, ResponseFuture};
 use hyper::header::HeaderValue;
+use ethereum_types::{Address};
+use serde_json as ser;
+
+use crate::ethereum_objects::BlockString;
 use crate::types::*;
 use crate::conf::Configuration;
 use crate::utils::IntoHexStr;
@@ -74,30 +78,63 @@ impl InfuraClient  {
 
 // TODO build a better macro that is clearer #p3
 macro_rules! rpc_call {
-    ($call:ident, $sel: ident, $params: expr) => ({
-        match JsonRpcObject::default()
-            .method(ApiCall::$call)
-            .params($params.to_vec())
-            .build()
-            .map_err(|e| futures::future::err(e.into())) 
-        {
-            Ok(j) => Box::new($sel.do_post(j)),
-            Err(e) => Box::new(e)
-        }
+    ($sel:ident, $call: ident, $params: expr) => ({
+        let j = try_future!(
+            JsonRpcObject::default()
+                .method(ApiCall::$call)
+                .params($params.to_vec())
+                .build()
+        );
+        debug!("JSONOBJ: {:?}", j);
+        Box::new($sel.do_post(j))
+    })
+}
+
+macro_rules! de_addr {
+    ($addr:ident) => ({
+        ser::Value::String(format!("{:?}", $addr))
+    })
+}
+
+macro_rules! de_str {
+    ($str:expr) => ({
+        ser::Value::String($str)
+    })
+}
+
+macro_rules! de_bool {
+    ($bool:expr) => ({
+        ser::Value::Bool($bool)
     })
 }
 
 
-// write a serializer
+// TODO: write a custom serializer to clean this code up #p2
 impl EthRpcClient for InfuraClient {
-    fn getBlockNumber(&self) -> Box<dyn Future<Item=ResponseObject, Error = Error> + Send> {
-        return rpc_call!(EthBlockNumber, self, []);
+    fn block_number(&self) -> Box<dyn Future<Item=ResponseObject, Error = Error> + Send> {
+        return rpc_call!(self, EthBlockNumber, []);
     }
 
-    fn getBlockByNumber(&self, block_num: u64, show_tx_details: bool
+    fn get_block_by_number(&self, block_num: u64, show_tx_details: bool
         ) -> Box<Future<Item=ResponseObject, Error = Error> + Send> 
     {
-        return rpc_call!(EthGetBlockByNumber, self, [serde_json::Value::String(block_num.into_hex_str()), serde_json::Value::Bool(show_tx_details)]);
+        return rpc_call!(self, EthGetBlockByNumber, [de_str!(block_num.into_hex_str()), de_bool!(show_tx_details)]);
+    }
+  
+    fn gas_price(&self) -> Box<dyn Future<Item=ResponseObject, Error=Error> + Send> {
+        return rpc_call!(self, EthGasPrice, []);
+    }
+   
+    fn get_balance(&self, addr: Address, block_num: Option<usize>, block_str: Option<BlockString>
+        ) -> Box<dyn Future<Item=ResponseObject, Error=Error> + Send> 
+    {   
+        if block_num.is_some() {
+            return rpc_call!(self, EthGetBalance, [de_addr!(addr), de_str!(block_num.expect("scope is conditional; qed").into_hex_str())]);
+        } else if block_str.is_some() {
+            return rpc_call!(self, EthGetBalance, [de_addr!(addr), de_str!(block_str.expect("scope is conditional; qed").to_str())]);
+        } else {
+            return Box::new(futures::future::err(RpcError::MissingParameter("Missing `block_num` or `block_str`".to_owned()).into()));
+        }
     }
 }
 

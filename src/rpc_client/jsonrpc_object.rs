@@ -1,5 +1,5 @@
 //! An object that represents the JSON Data Responses and Requests to JsonRPC's
-use log::{log, debug};
+use log::{log, debug, info};
 use failure::{Fail};
 use serde_derive::*;
 use std::fmt;
@@ -11,6 +11,19 @@ use crate::types::JSON_RPC_VERSION;
 use super::api_call::ApiCall;
 use super::response_object::ResponseObject;
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct JsonRpcError  {
+    code: i64,
+    message: String,
+    data: Option<serde_json::Value>
+}
+
+impl JsonRpcError {
+    fn info(&self) -> (String, i64) {
+        (self.message.clone(), self.code)
+    }
+}
+
 #[derive(Serialize, Debug)]
 pub struct JsonRpcObject {
     id: ApiCall,
@@ -20,6 +33,20 @@ pub struct JsonRpcObject {
     #[serde(skip_serializing_if = "Option::is_none")]
     method: Option<String>,
     params: Vec<serde_json::Value>,
+    #[serde(skip_serializing)]
+    error: Option<JsonRpcError>
+}
+
+impl std::fmt::Display for JsonRpcObject {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}: {}\n, {}: {}\n, {}: {:?}\n, {}: {:?}\n, {}: {:?}\n, {}: {:?}\n", 
+               "id".bright_white().bold().underline(), self.id, 
+               "jsonrpc".bright_white().bold().underline(), self.jsonrpc, 
+               "result".bright_white().bold().underline(), self.result, 
+               "method".bright_white().bold().underline(), self.method,
+               "params".bright_white().bold().underline(), self.params,
+               "error".bright_red().bold().underline(), self.error)
+    }
 }
 
 
@@ -28,7 +55,10 @@ pub enum JsonBuildError {
     #[fail(display = "Error building JsonBuild JSON Object: {}", _0)]
     SerializationError(#[cause] serde_json::error::Error),
     #[fail(display = "Hyper Error while building Json Response Object: {}", _0)]
-    HyperError(#[cause] hyper::error::Error)
+    HyperError(#[cause] hyper::error::Error),
+    #[fail(display = "The Ethereum JsonRPC returned an error: {}, code: {}", _0, _1)]
+    RPCError(String, i64)
+
 }
 
 impl From<hyper::error::Error> for JsonBuildError {
@@ -51,6 +81,7 @@ impl Default for JsonRpcObject {
             result: ResponseObject::Nil,
             method: None,
             params: Vec::new(),
+            error: None,
         } 
     }
 }
@@ -74,8 +105,8 @@ impl JsonRpcObject {
     }
 
     pub fn build(&self) -> std::result::Result<String, JsonBuildError> {
-        debug!("{}: {:?}","JSON Response Object".cyan().bold(), self);
-        debug!("{}: {:?}", "JSON Object, SERIALIZED".yellow().bold(), serde_json::to_string(self)?);
+        info!("Json Rpc Object (SEND) {}", self);
+        println!("Json Rpc Object (SEND), serialized: {}", serde_json::to_string(self).unwrap());
         Ok(serde_json::to_string(self)?)
     }
 }
@@ -89,6 +120,16 @@ impl JsonRpcObject {
     // returns a raw string literal of the result
     crate fn get_result(self) -> ResponseObject {
         self.result
+    }
+
+    crate fn is_error(&self) -> bool {
+        self.result == ResponseObject::Nil && self.error.is_some()
+    }
+
+    crate fn err_info(&self) -> Option<(String, i64)> {
+        if self.is_error() {
+            Some(self.error.as_ref().expect("Scope is conditional").info())
+        } else { None }
     }
 }
 
@@ -150,7 +191,7 @@ impl<'de> Deserialize<'de> for JsonRpcObject {
         
         #[derive(Deserialize)]
         #[serde(field_identifier, rename_all = "lowercase")]
-        enum Field {Id, JsonRpc, Result, Method, Params};
+        enum Field {Id, JsonRpc, Result, Method, Params, Error};
 
         struct JsonRpcObjectVisitor;
         impl<'de> Visitor<'de> for JsonRpcObjectVisitor {
@@ -167,6 +208,7 @@ impl<'de> Deserialize<'de> for JsonRpcObject {
                 let mut id = None;
                 let mut jsonrpc = None;
                 let mut result: Option<ResponseObject> = None;
+                let mut error: Option<JsonRpcError> = None;
 
                 /*** SEE: Deserialization Note! ***/
                 while let Some(key) = map.next_key()? {
@@ -193,6 +235,12 @@ impl<'de> Deserialize<'de> for JsonRpcObject {
                             // let res = ResponseObject::from_value(value, id)
                             result = Some(ResponseObject::from_serde_value(map_or_str, id?).map_err(|e| de::Error::custom(e))?)
                         },
+                        Field::Error => {
+                            if error.is_some() {
+                                return Err(de::Error::duplicate_field("error"));
+                            }
+                            error = Some(map.next_value()?);
+                        },
                         Field::Method => { // skip
                             /* return Err(de::Error::unknown_field("Don't deserialize 'Method'", map.next_value()?));*/
                         },
@@ -201,10 +249,9 @@ impl<'de> Deserialize<'de> for JsonRpcObject {
                         }
                     }
                 }
-                
+                    
                 let id = id.expect("For execution to get to this point, id must have been used succesfully during the `result` match; qed");
-                let result = result.ok_or_else(|| de::Error::missing_field("result"))?;
-                debug!("{}: {}","ID".red().bold(), id);
+                let result = result.unwrap_or(ResponseObject::Nil);
 
                 let jsonrpc = jsonrpc.ok_or_else(|| de::Error::missing_field("jsonrpc"))?;
                 Ok(JsonRpcObject {
@@ -213,6 +260,7 @@ impl<'de> Deserialize<'de> for JsonRpcObject {
                     result,
                     method: None,
                     params: Vec::new(),
+                    error,
                 })
             }
 
@@ -221,7 +269,7 @@ impl<'de> Deserialize<'de> for JsonRpcObject {
             // need to implement this as of yet.
             // TODO: implement `visit_seq` for JsonRpcObject #p3
         }
-        const FIELDS: &'static [&'static str] = &["id", "jsonrpc", "result", "method", "params"];
+        const FIELDS: &'static [&'static str] = &["id", "jsonrpc", "result", "method", "params", "error"];
         deserializer.deserialize_struct("JsonRpcObject", FIELDS, JsonRpcObjectVisitor)
     }
 }
@@ -236,7 +284,7 @@ mod tests {
     fn it_should_create_json() {
         env_logger::try_init();
         let test = json!({
-           "id": 1,
+           "id": 2,
            "jsonrpc": "2.0",
            "method": "eth_blockNumber",
            "params": [],

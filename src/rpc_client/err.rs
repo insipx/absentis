@@ -18,7 +18,10 @@ pub enum RpcError {
     #[fail(display = "Json Build Error")]
     JsonError(#[fail(cause)] JsonBuildError),
     #[fail(display = "A Networking Error Occured")]
-    Net(#[fail(cause)] hyper::error::Error)
+    Net(#[fail(cause)] hyper::error::Error),
+    #[fail(display = "Missing parameter: {}", _0)]
+    MissingParameter(String)
+
 }
 
 impl From<hyper::error::Error> for RpcError {
