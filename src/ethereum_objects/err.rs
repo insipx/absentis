@@ -1,7 +1,4 @@
 use failure::Fail;
-use serde_derive::*;
-use serde_json::{self, from_str, from_slice, Error as JError, json, json_internal};
-use serde::de::{self, Deserializer, Deserialize, Visitor, SeqAccess, MapAccess};
 
 #[derive(Fail, Debug)]
 pub struct TypeMismatchError {
@@ -38,11 +35,3 @@ impl From<serde_json::error::Error> for ResponseBuildError {
     }
 }
 
-// expects a string and value 
-#[macro_export]
-macro_rules! mismatched_types {
-    ($expected_type: expr, $recvd_type: ident) => ({
-        let string = format!("Expected type `{}`, got `{}` in {}", $expected_type, $recvd_type, err_loc!());
-        Err(ResponseBuildError::MismatchedTypes(TypeMismatchError::new(string)))
-    })
-}

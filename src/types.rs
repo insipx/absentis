@@ -9,8 +9,8 @@ pub const JSON_APP_HEADER: &'static str = "application/json";
 pub struct Uri(hyper::Uri);
 
 pub enum ApiCall {
-  EthBlockNumber, // eth_blockNumber
-  EthGetBlockByNumber, // eth_getBlockByNumber
+  EthBlockNumber = 1, // eth_blockNumber
+  EthGetBlockByNumber = 2, // eth_getBlockByNumber
 }
 
 impl ApiCall {
@@ -47,20 +47,6 @@ impl ApiCall {
         }
         
     }
-
-/*
-    pub fn from_id_and<F,T>(id: usize, fun: F) -> Result<T, Error> 
-        where
-            F: FnOnce(String) -> Result<T, Error>
-    {
-        match Self::from_id(id) {
-            c @ ApiCall::EthBlockNumber => fun(c.to_str()),
-            c @ ApiCall::EthGetBlockByNumber => fun(c.to_str()),
-        }
-        
-    }
-
-    */
 }
 
 impl From<usize> for ApiCall {
@@ -72,6 +58,8 @@ impl From<usize> for ApiCall {
         }
     }
 }
+
+
 // String conversions should really not be used in production, they are for tests
 // TODO: Convert into errors
 impl From<Uri> for String {

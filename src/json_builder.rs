@@ -1,3 +1,4 @@
+use log::{log, debug, error};
 use failure::{Fail, Error as FError};
 use serde_derive::*;
 use serde_json::{self, from_str, from_slice, Error as JError, json, json_internal};
