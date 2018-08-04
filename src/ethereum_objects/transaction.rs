@@ -2,8 +2,6 @@ use serde_derive::{Deserialize};
 use ethereum_types::{H256, Address};
 use super::hex::Hex;
 
-
-
 #[derive(Deserialize, Debug)]
 pub struct Transaction {
   hash: H256,

@@ -1,5 +1,6 @@
 use failure::*;
 use std::str::FromStr;
+use serde_derive::{Serialize, Deserialize};
 
 pub const MAINNET_AUTHORITY: &'static str = "https://mainnet.infura.io/";
 pub const JSON_RPC_VERSION: &'static str = "2.0";
@@ -7,58 +8,6 @@ pub const JSON_APP_HEADER: &'static str = "application/json";
 
 #[derive(Clone, Debug)]
 pub struct Uri(hyper::Uri);
-
-pub enum ApiCall {
-  EthBlockNumber = 1, // eth_blockNumber
-  EthGetBlockByNumber = 2, // eth_getBlockByNumber
-}
-
-impl ApiCall {
-
-    pub fn from_id(id: usize) -> Self {
-        match id {
-            1 => ApiCall::EthBlockNumber,
-            2 => ApiCall::EthGetBlockByNumber,
-            _ => panic!("No Id for API call found!")
-        }
-    }
-
-    pub fn method_info(&self) -> (usize, String) {
-        match self {
-            ApiCall::EthBlockNumber => (1, "eth_blockNumber".to_string()),
-            ApiCall::EthGetBlockByNumber => (2, "eth_getBlockByNumber".to_string()),
-        }
-    }
-
-    pub fn to_str(&self) -> String {
-        match self {
-            ApiCall::EthBlockNumber => "EthBlockNumber".to_owned(),
-            ApiCall::EthGetBlockByNumber => "EthGetBlockByNumber".to_owned(),
-        }
-    }
-
-    pub fn from_id_and<F,T>(id: usize, fun: F) -> T
-        where
-            F: FnOnce(ApiCall) -> T
-    {
-        match Self::from_id(id) {
-            c @ ApiCall::EthBlockNumber => fun(c),
-            c @ ApiCall::EthGetBlockByNumber => fun(c),
-        }
-        
-    }
-}
-
-impl From<usize> for ApiCall {
-    fn from(call: usize) -> ApiCall {
-        match call {
-            1 => ApiCall::EthBlockNumber,
-            2 => ApiCall::EthGetBlockByNumber,
-            _ => panic!("No Id for API call found!")
-        }
-    }
-}
-
 
 // String conversions should really not be used in production, they are for tests
 // TODO: Convert into errors
