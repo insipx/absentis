@@ -13,8 +13,8 @@ pub enum RpcError {
     JsonSerializeError(#[fail(cause)] serde_json::error::Error),
     #[fail(display = "Invalid Header Value for in HTTP Request")]
     InvalidHeaderValue,
-    #[fail(display = "Tokio BlockError")]
-    BlockError(#[fail(cause)] tokio::executor::current_thread::BlockError<hyper::error::Error>),
+    // #[fail(display = "Tokio BlockError")]
+    // BlockError(#[fail(cause)] tokio::executor::current_thread::BlockError<hyper::error::Error>),
     #[fail(display = "Json Build Error")]
     JsonError(#[fail(cause)] JsonBuildError),
     #[fail(display = "A Networking Error Occured")]

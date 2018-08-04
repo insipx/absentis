@@ -25,8 +25,8 @@ impl ApiCall {
 
     pub fn method_info(&self) -> (usize, String) {
         match self {
-            EthBlockNumber => (1, "eth_blockNumber".to_string()),
-            EthGetBlockByNumber => (2, "eth_getBlockByNumber".to_string()),
+            ApiCall::EthBlockNumber => (1, "eth_blockNumber".to_string()),
+            ApiCall::EthGetBlockByNumber => (2, "eth_getBlockByNumber".to_string()),
         }
     }
 
@@ -39,11 +39,11 @@ impl ApiCall {
 
     pub fn from_id_and<F,T>(id: usize, fun: F) -> T
         where
-            F: FnOnce(String) -> T
+            F: FnOnce(ApiCall) -> T
     {
         match Self::from_id(id) {
-            c @ ApiCall::EthBlockNumber => fun(c.to_str()),
-            c @ ApiCall::EthGetBlockByNumber => fun(c.to_str()),
+            c @ ApiCall::EthBlockNumber => fun(c),
+            c @ ApiCall::EthGetBlockByNumber => fun(c),
         }
         
     }

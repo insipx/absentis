@@ -1,24 +1,25 @@
 //! Asynchronous JSON-RPC clients for use with Infura, and Ethereum Nodes (Geth, Parity, Etc)
 use log::*;
 use failure::*;
-use futures::{Poll, Async, Future};
+use colored::Colorize;
+use futures::{Future};
 use hyper::{Client, Uri as HyperUri, Method, Request};
-use hyper::rt::{self, Stream};
+use hyper::rt::{Stream};
 use hyper_tls::HttpsConnector;
 use hyper::client::{HttpConnector, ResponseFuture};
 use hyper::header::HeaderValue;
-use std::io::Write;
 use crate::types::*;
 use crate::conf::Configuration;
 use crate::ethereum_objects::{ResponseObject};
 use crate::json_builder::JsonBuilder;
 use crate::err::RpcError;
+use crate::utils::IntoHexStr;
 
 // not all methods are defined on the client
 // just the ones needed for the bounty 
 pub trait EthRpcClient {
     fn getBlockNumber(&self) -> Box<dyn Future<Item=ResponseObject, Error=Error> + Send>;
-    fn getBlockByNumber(&self) -> Box<dyn Future<Item=ResponseObject, Error=Error> + Send>;
+    fn getBlockByNumber(&self, _: u64, _: bool ) -> Box<dyn Future<Item=ResponseObject, Error=Error> + Send>;
 }
 
 pub struct InfuraClient {
@@ -79,21 +80,28 @@ impl InfuraClient  {
 
 // TODO build a better macro that is clearer #p3
 macro_rules! rpc_call {
-    ($call:ident, $sel: ident) => ({
-        match JsonBuilder::default().method(ApiCall::$call).build().map_err(|e| futures::future::err(e.into())) {
-                Ok(j) => Box::new($sel.do_post(j)),
-                Err(e) => Box::new(e)
-            }
+    ($call:ident, $sel: ident, $params: expr) => ({
+        match JsonBuilder::default()
+            .method(ApiCall::$call)
+            .params($params.to_vec())
+            .build()
+            .map_err(|e| futures::future::err(e.into())) 
+        {
+            Ok(j) => Box::new($sel.do_post(j)),
+            Err(e) => Box::new(e)
+        }
     })
 }
-
+// write a serializer
 impl EthRpcClient for InfuraClient {
     fn getBlockNumber(&self) -> Box<dyn Future<Item=ResponseObject, Error = Error> + Send> {
-        return rpc_call!(EthBlockNumber, self);
+        return rpc_call!(EthBlockNumber, self, []);
     }
 
-    fn getBlockByNumber(&self) -> Box<Future<Item=ResponseObject, Error = Error> + Send> {
-        return rpc_call!(EthGetBlockByNumber, self);
+    fn getBlockByNumber(&self, block_num: u64, show_tx_details: bool
+        ) -> Box<Future<Item=ResponseObject, Error = Error> + Send> 
+    {
+        return rpc_call!(EthGetBlockByNumber, self, [serde_json::Value::String(block_num.into_hex_str()), serde_json::Value::Bool(show_tx_details)]);
     }
 }
 
@@ -113,7 +121,7 @@ mod tests {
     use regex::Regex;
     use std::sync::{Once, ONCE_INIT};
     use env_logger;
-
+    
     #[test]
     fn it_should_get_the_latest_block() {
         env_logger::try_init();
@@ -126,26 +134,34 @@ mod tests {
             error!("Backtrace: {:?}", err.backtrace());
             panic!("Failed due to error");
         }).and_then(|res| {
-            println!("RES: {:#?}", res);
+            info!("{}: {:?}","eth_blockNumber".green().bold(), res);
+            assert_eq!(res.to_str(), "EthBlockNumber");
             Ok(())
         });
-            
-        /* let rt = Runtime::new();
-         * rt.block_on(fut);
-         */
+        
         let mut rt = tokio::runtime::Runtime::new().expect("Could not construct tokio runtime");
         rt.block_on(task);
-/*
-        let res = client.getBlockNumber().wait();
-        match res {
-            Ok(ref v) => info!("RES: {:#?}", v),
-            Err(e) => {
-                error!("E: {:#?}", e);
-                error!("Cause: {:#?}", e.cause());
-                panic!("Test failed due to error");
-            }
-        }
-        */
+    }
+
+    #[test]
+    fn it_should_get_a_block_by_number() {
+        env_logger::try_init();
+        //pub fn get_latest_block(conf: Configuration) -> Result<(), Error>  {
+        let client = InfuraClient::new().expect("Error building client!");
+        
+        let task = client.getBlockByNumber(300, true).map_err(|err: failure::Error| { 
+            error!("ERROR: {:?}", err);
+            error!("ERROR: {:?}", err.cause());
+            error!("Backtrace: {:?}", err.backtrace());
+            panic!("Failed due to error");
+        }).and_then(|res| {
+            info!("{}: {:?}","eth_getBlockByNumber".green().bold(), res);
+            assert_eq!(res.to_str(), "EthGetBlockByNumber");
+            assert!(res.)
+            Ok(())
+        });
+        let mut rt = tokio::runtime::Runtime::new().expect("Could not construct tokio runtime");
+        rt.block_on(task);
     }
 
     #[test]

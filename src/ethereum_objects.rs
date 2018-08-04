@@ -1,95 +1,117 @@
 use log::*;
-use serde_json::*;
 use serde_derive::*;
-use serde::de::Deserializer;
-use serde_hex::{SerHexSeq,StrictPfx,CompactPfx};
+use serde_json::{self, from_str, from_slice, Error as JError, json, json_internal};
+use serde::de::{self, Deserializer, Deserialize, Visitor, SeqAccess, MapAccess};
+use hex::FromHex;
 use ethereum_types::*;
 use colored::Colorize;
-use http::Response;
-use serde::de;
-use failure::Error;
+use failure::{Error as FError, Fail};
+use crate::utils::*;
 use crate::json_builder::{JsonBuilder, JsonBuildError};
 use crate::types::ApiCall;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub enum ResponseObject {
     EthBlockNumber(Hex),
     EthGetBlockByNumber(Block),
     Nil,
 }
 
+#[derive(Fail, Debug)]
+pub struct TypeMismatchError {
+    invalid_type: String
+}
+
+impl TypeMismatchError {
+    fn new(err: String) -> Self {
+        TypeMismatchError {
+            invalid_type: err
+        }
+    }
+}
+
+impl std::fmt::Display for TypeMismatchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.invalid_type)
+    }
+}
+
+#[derive(Fail, Debug)]
+pub enum ResponseBuildError {
+    #[fail(display = "Error building JSON Object from 'Result'")]
+    SerializationError(#[fail(cause)] serde_json::error::Error),
+    #[fail(display = "Hyper Error while building Json Response Object")]
+    HyperError(#[fail(cause)] hyper::error::Error),
+    #[fail(display = "Mismatched types during build")]
+    MismatchedTypes(TypeMismatchError)
+}
+
+impl From<serde_json::error::Error> for ResponseBuildError {
+    fn from(err: serde_json::error::Error) -> Self {
+        ResponseBuildError::SerializationError(err)
+    }
+}
+
+// expects a string and value 
+macro_rules! mismatched_types {
+    ($expected_type: expr, $recvd_type: ident) => ({
+        let string = format!("Expected type `{}`, got `{}` in {}", $expected_type, $recvd_type, err_loc!());
+        Err(ResponseBuildError::MismatchedTypes(TypeMismatchError::new(string)))
+    })
+}
+
+
 impl ResponseObject {
-    pub fn new(body: String) -> std::result::Result<Self, JsonBuildError> {
+    pub fn new(body: String) -> std::result::Result<Self, ResponseBuildError> {
         debug!("{}: {:#?}", "JSON Response Result Object".cyan(), body.yellow());
         let json: JsonBuilder = serde_json::from_str(&body)?;
         Ok(json.get_result())
-        /*
-        match ApiCall::from_id(json.get_id()) {
-            EthBlockNumber => Ok(ResponseObject::EthBlockNumber(serde_json::from_str(&json.get_result())?)),
-            EthGetBlockByNumber => Ok(ResponseObject::EthGetBlockByNumber(serde_json::from_str(&json.get_result())?))
-        }
-        */
     }
-
-    pub fn from_bytes(mut body: bytes::Bytes) -> std::result::Result<Self, JsonBuildError> {
-        debug!("{}: {}", "JSON Response Result Object".cyan().bold(), std::str::from_utf8(&*body).unwrap().yellow().bold());
+    
+    // parses a serde_json::Value into a ResponseObject
+    // Value must be a Value::String or Value::Object
+    pub fn from_serde_value(mut val: serde_json::Value, id: usize) -> Result<Self, ResponseBuildError> {
+        match ApiCall::from_id(id) {
+            ApiCall::EthBlockNumber => {
+                if !val.is_string() {   
+                    mismatched_types!("String", val)
+                } else {
+                    let hex = serde_json::from_str(&val.take().to_string());
+                    Ok(ResponseObject::EthBlockNumber(verb_err!(hex)))
+                }
+            },
+            ApiCall::EthGetBlockByNumber => {
+                if !val.is_object() {
+                    mismatched_types!("Map", val)
+                } else {
+                    debug!("Map String: {}", val.to_string().yellow().bold());
+                    let block = serde_json::from_str(&val.take().to_string());
+                    Ok(ResponseObject::EthGetBlockByNumber(verb_err!(block)))
+                }
+            }
+        }
+    }
+    
+    pub fn from_bytes(body: bytes::Bytes) -> std::result::Result<Self, JsonBuildError> {
+        // debug!("{}: {}", "JSON Response Result Object".cyan().bold(), std::str::from_utf8(&*body).unwrap().yellow().bold());
+        // debug!("In Function {} in file {}; line: {}", "`from_bytes`".bold().underline().bright_cyan(), file!().bold().underline(), line!().to_string().bold().bright_white().underline());
         let json: JsonBuilder = serde_json::from_slice(&body.to_vec())?;
-        debug!("{}: {:?}", "JSON Response Object, Deserialized".cyan().bold(), json);
-        // debug!("{}: {}", "JSON RESULT Object, Serialized".cyan().bold(), &json.get_result().yellow().bold());
-        debug!("{}", r#"0x5cab"#);
+        // debug!("{}: {:?}", "JSON Response Object, Deserialized".cyan().bold(), json);
         Ok(json.get_result())
+    }
 
-        /*
-        match ApiCall::from_id(json.get_id()) {
-            EthBlockNumber => Ok(ResponseObject::EthBlockNumber(serde_json::from_str(&json.get_result())?)),
-            EthGetBlockByNumber => Ok(ResponseObject::EthGetBlockByNumber(serde_json::from_str(&json.get_result())?))
+    pub fn to_str(&self) -> String {
+        match self {
+            ResponseObject::EthBlockNumber(_) => "EthBlockNumber".to_owned(),
+            ResponseObject::EthGetBlockByNumber(_) => "EthGetBlockByNumber".to_owned(),
+            ResponseObject::Nil => "Nil".to_owned(),
         }
-        */
     }
 }
 
-
-// #[derive(Deserialize, Serialize, Debug)]
-// struct Hex(#[serde(with="SerHex::<StrictPfx>")] [u8; 32]);
-
-//impl_serhex_bytearray!(Hex, 64);
-
-#[derive(Deserialize, Serialize, Debug)]
-pub struct Hex (
-    #[serde(with ="SerHexSeq::<StrictPfx>")] 
-    Vec<u8>
-);
-
-
-/*
-impl std::fmt::Debug for Hex {
-    /*fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "0x{}", self.0.iter().map(|x| format!("{:x}", x)).collect::<String>())
-    }*/
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{:x}", self.0)
-    }
-}
-*/
-/*
-impl From<[u8; 64]> for Hex {
-    fn from(arr: [u8; 64]) -> Hex {
-        Hex(arr)
-    }
-}
-
-impl std::convert::AsRef<[u8]> for Hex {
-    fn as_ref(&self) -> &[u8] {
-        self.0.as_ref()
-    }
-}
-*/
-//#[derive(Serialize, Deserialize, Debug)]
-// pub struct BlockNumber(Hex);
-
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 pub struct Block {
-  number: usize,
+  number: Hex,
   hash: H256,
   parentHash: H256,
   nonce: H64,
@@ -99,31 +121,85 @@ pub struct Block {
   stateRoot: H256,
   receiptsRoot: H256,
   miner: H160,
-  difficulty: u64,
-  totalDifficulty: u64,
-  extraData: String,
-  size: u64,
-  gasLimit: u64,
-  gasUsed:  u64,
-  timestamp: String,
+  difficulty: Hex,
+  totalDifficulty: Hex,
+  extraData: Hex,
+  size: Hex,
+  gasLimit: Hex,
+  gasUsed:  Hex,
+  timestamp: Hex,
+  #[serde(rename = "transactions")]
   transactions_objects: Option<Vec<Transaction>>,
+  #[serde(rename = "transactions")]
   transactions_hashes: Option<Vec<H256>>
 } 
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 struct Transaction {
   hash: H256,
-  nonce: usize,
+  nonce: Hex,
   blockHash: H256,
-  blockNumber: usize,
-  transactionIndex: usize,
+  blockNumber: Hex,
+  transactionIndex: Hex,
   from: Address,
   to: Address,
-  value: u64, 
-  gasPrice: usize,
-  gas: usize,
-  input: String,
+  value: Hex, 
+  gasPrice: Hex,
+  gas: Hex,
+  input: Hex,
 }
+
+pub struct Hex (Vec<u8>);
+
+impl<'de> Deserialize<'de> for Hex {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error> where D: Deserializer<'de> {
+
+        struct HexVisitor;
+
+        impl<'de> Visitor<'de> for HexVisitor {
+            type Value = Hex;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("struct Hex")
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E> where E: de::Error {
+
+                let rmv_pfx = | x: &str | return x.char_indices().skip_while(|(i, x)| *i < 2).map(|(_, x)| x).collect::<String>();
+                let get_hex = | x: &str | return Vec::from_hex(x).map_err(|e| de::Error::custom(e));
+               
+
+                if v.starts_with("0x") && v.len() % 2 == 0 {
+                    Ok( Hex(get_hex(&rmv_pfx(v))?) )
+                
+                } else if v.starts_with("0x") && v.len() % 2 != 0 {
+                    let no_pfx = rmv_pfx(v);
+                    let make_even = format!("{}{}", "0", no_pfx);
+                    Ok( Hex(get_hex(&make_even)?) )
+                
+                } else if v.len() % 2 != 0 {
+                    let make_even = format!("{}{}", "0", v);
+                    Ok( Hex(get_hex(&make_even)?) )
+                
+                } else {
+                    Ok( Hex(get_hex(v)?) )
+                }
+            }
+        }
+        deserializer.deserialize_str(HexVisitor)
+    }
+}
+
+impl std::fmt::Debug for Hex {
+    /*fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "0x{}", self.0.iter().map(|x| format!("{:x}", x)).collect::<String>())
+    }*/
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let hex_str: String = self.0.iter().map(|b|  format!("{:x}", b)).collect();
+        write!(f, "0x{}", hex_str)
+    }
+}
+
 
 
 /*
