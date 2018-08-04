@@ -10,6 +10,25 @@ impl<T> IntoHexStr<T> for T where T: LowerHex {
     }
 }
 
+#[macro_export]
+macro_rules! pretty_err {
+    ($err:ident) => ({
+        use colored::Colorize;
+        let err_string = format!("{}", $err);
+        error!("{}", err_string.bright_red().bold().underline());
+    })
+}
+
+#[macro_export]
+macro_rules! pretty_success {
+    ($succ:ident) => ({
+        use colored::Colorize;
+        let succ_string = format!("{}", $succ);
+        info!("{}", succ_string.bright_green().bold().underline());
+    })
+}
+
+
 #[macro_export] 
 macro_rules! err_loc {
     () => ({

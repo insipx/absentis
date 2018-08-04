@@ -13,9 +13,7 @@ fn it_should_get_the_latest_block() {
     let client = InfuraClient::new().expect("Error building client!");
     
     let task = client.getBlockNumber().map_err(|err: failure::Error| { 
-        error!("ERROR: {:?}", err);
-        error!("ERROR: {:?}", err.cause());
-        error!("Backtrace: {:?}", err.backtrace());
+        pretty_err!(err);
         panic!("Failed due to error");
     }).and_then(|res| {
         info!("{}: {:?}","eth_blockNumber".green().bold(), res);
@@ -34,9 +32,7 @@ fn it_should_get_a_block_by_number() {
     let client = InfuraClient::new().expect("Error building client!");
     
     let task = client.getBlockByNumber(300, true).map_err(|err: failure::Error| { 
-        error!("ERROR: {:?}", err);
-        error!("ERROR: {:?}", err.cause());
-        error!("Backtrace: {:?}", err.backtrace());
+        pretty_err!(err);
         panic!("Failed due to error");
     }).and_then(|res| {
         info!("{}: {:?}","eth_getBlockByNumber".green().bold(), res);

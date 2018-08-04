@@ -76,13 +76,13 @@ impl std::fmt::Display for TypeMismatchError {
     }
 }
 
-#[derive(Fail, Debug)]
+#[derive(Debug, Fail)]
 pub enum ResponseBuildError {
-    #[fail(display = "Error building JSON Object from 'Result'")]
-    SerializationError(#[fail(cause)] serde_json::error::Error),
-    #[fail(display = "Hyper Error while building Json Response Object")]
-    HyperError(#[fail(cause)] hyper::error::Error),
-    #[fail(display = "Mismatched types during build")]
+    #[fail(display = "Error Deserializing JSON `Result`: {}", _0)]
+    SerializationError(#[cause] serde_json::error::Error),
+    #[fail(display = "Error building Json Response Object")]
+    HyperError(#[cause] hyper::error::Error),
+    #[fail(display = "Mismatched types during build: {}", _0)]
     MismatchedTypes(TypeMismatchError)
 }
 

@@ -121,7 +121,7 @@ mod tests {
             },
             Err(e) => {
                 error!("Error in test: {}", e);
-                error!("Cause: {:#?}", e.cause());
+                error!("Cause: {:#?}", e.as_fail());
                 error!("Trace: {:#?}", e.backtrace());
                 panic!("Failed due to error");
             }

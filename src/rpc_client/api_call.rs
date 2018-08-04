@@ -1,14 +1,64 @@
-use serde_derive::{Serialize, Deserialize};
 use enum_primitive_derive::Primitive;
-use num_traits::{FromPrimitive, ToPrimitive};
+use num_traits::FromPrimitive;
 
+macro_rules! enum_number {
+    ($name:ident { $($variant:ident = $value:expr, )* }) => {
+        #[derive(Clone, Copy, Debug, Eq, PartialEq, Primitive)]
+        pub enum $name {
+            $($variant = $value,)*
+        }
 
-#[derive(Serialize, Deserialize, Primitive, Debug)]
-pub enum ApiCall {
+        impl ::serde::Serialize for $name {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: ::serde::Serializer,
+            {
+                // Serialize the enum as a u64.
+                serializer.serialize_u64(*self as u64)
+            }
+        }
+
+        impl<'de> ::serde::Deserialize<'de> for $name {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: ::serde::Deserializer<'de>,
+            {
+                struct Visitor;
+
+                impl<'de> ::serde::de::Visitor<'de> for Visitor {
+                    type Value = $name;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                        formatter.write_str("positive integer")
+                    }
+
+                    fn visit_u64<E>(self, value: u64) -> Result<$name, E>
+                    where
+                        E: ::serde::de::Error,
+                    {
+                        // Rust does not come with a simple way of converting a
+                        // number to an enum, so use a big `match`.
+                        match value {
+                            $( $value => Ok($name::$variant), )*
+                            _ => Err(E::custom(
+                                format!("unknown {} value: {}",
+                                stringify!($name), value))),
+                        }
+                    }
+                }
+
+                // Deserialize the enum from a u64.
+                deserializer.deserialize_u64(Visitor)
+            }
+        }
+    }
+}
+
+enum_number!(ApiCall {
     Nil = 0,
     EthBlockNumber = 1, // eth_blockNumber
     EthGetBlockByNumber = 2, // eth_getBlockByNumber
-}
+});
 
 impl std::fmt::Display for ApiCall {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -47,3 +97,4 @@ impl ApiCall {
         
     }
 }
+

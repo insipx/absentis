@@ -25,10 +25,10 @@ pub struct JsonRpcObject {
 
 #[derive(Fail, Debug)]
 pub enum JsonBuildError {
-    #[fail(display = "Error building JsonBuild JSON Object")]
-    SerializationError(#[fail(cause)] serde_json::error::Error),
-    #[fail(display = "Hyper Error while building Json Response Object")]
-    HyperError(#[fail(cause)] hyper::error::Error)
+    #[fail(display = "Error building JsonBuild JSON Object: {}", _0)]
+    SerializationError(#[cause] serde_json::error::Error),
+    #[fail(display = "Hyper Error while building Json Response Object: {}", _0)]
+    HyperError(#[cause] hyper::error::Error)
 }
 
 impl From<hyper::error::Error> for JsonBuildError {
