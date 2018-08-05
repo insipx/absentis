@@ -1,5 +1,5 @@
 use failure::*;
-use super::jsonrpc_object::JsonBuildError;
+use super::request_object::RequestBuildError;
 
 #[derive(Debug, Fail)]
 pub enum RpcError {
@@ -16,9 +16,12 @@ pub enum RpcError {
     // #[fail(display = "Tokio BlockError")]
     // BlockError(#[fail(cause)] tokio::executor::current_thread::BlockError<hyper::error::Error>),
     #[fail(display = "Json Build Error")]
-    JsonError(#[fail(cause)] JsonBuildError),
+    JsonError(#[fail(cause)]  RequestBuildError),
     #[fail(display = "A Networking Error Occured")]
-    Net(#[fail(cause)] hyper::error::Error)
+    Net(#[fail(cause)] hyper::error::Error),
+    #[fail(display = "Missing parameter: {}", _0)]
+    MissingParameter(String)
+
 }
 
 impl From<hyper::error::Error> for RpcError {
@@ -27,8 +30,8 @@ impl From<hyper::error::Error> for RpcError {
     }
 }
 
-impl From<JsonBuildError> for RpcError {
-    fn from(err: JsonBuildError) -> RpcError {
+impl From<RequestBuildError> for RpcError {
+    fn from(err: RequestBuildError) -> RpcError {
         RpcError::JsonError(err)
     }
 }

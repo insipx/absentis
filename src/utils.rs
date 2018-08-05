@@ -11,6 +11,16 @@ impl<T> IntoHexStr<T> for T where T: LowerHex {
 }
 
 #[macro_export]
+macro_rules! try_future {
+    ($val: expr) => ({
+        match $val {
+            Ok(v) => v,
+            Err(e) => return Box::new(futures::future::err(e.into()))
+        }
+    });
+}
+
+#[macro_export]
 macro_rules! pretty_err {
     ($err:ident) => ({
         use colored::Colorize;
@@ -19,13 +29,15 @@ macro_rules! pretty_err {
     })
 }
 
+// $($pms:expr),+
 #[macro_export]
 macro_rules! pretty_success {
-    ($succ:ident) => ({
+    ($color:expr, $str: expr, $( $succ:expr ),*) => ({
         use colored::Colorize;
-        let succ_string = format!("{}", $succ);
-        info!("{}", succ_string.bright_green().bold().underline());
-    })
+        let col_string = format!("{}", $color.bright_green().bold().underline());
+        let succ_string = format!($str, $($succ),* );
+        info!("{}: {:?}",col_string, succ_string);
+    });
 }
 
 
