@@ -8,6 +8,7 @@ use std::str::FromStr;
 use crate::ethereum_objects::Hex;
 use env_logger;
 
+
 #[test]
 fn it_should_get_the_latest_block() {
     env_logger::try_init();
@@ -19,7 +20,7 @@ fn it_should_get_the_latest_block() {
         panic!("Failed due to error");
     }).and_then(|res| {
         pretty_success!("eth_blockNumber", "{:?}", res);
-        assert_eq!(res.to_str(), "EthBlockNumber");
+//        compare!(EthBlockNumber, "EthBlockNumber", res);
         Ok(())
     });
     
@@ -38,7 +39,7 @@ fn it_should_get_a_block_by_number() {
         panic!("Failed due to error");
     }).and_then(|res| {
         pretty_success!("eth_getBlockByNumber", "{:?}", res);
-        assert_eq!(res.to_str(), "EthGetBlockByNumber");
+        // compare!(EthGetBlockByNumber, "EthGetBlockByNumber", res);
         Ok(())
     });
     let mut rt = tokio::runtime::Runtime::new().expect("Could not construct tokio runtime");
@@ -55,7 +56,7 @@ fn it_should_get_gas_price() {
         panic!("Failed due to err");
     }).and_then(|res| {
         pretty_success!("eth_gasPrice", "{:?}", res);
-        assert_eq!(res.to_str(), "EthGasPrice");
+        // compare!(EthGasPrice, "EthGasPrice", res);
         Ok(())
     });
 
@@ -78,7 +79,7 @@ fn it_should_get_balance() {
         panic!("Failed due to err");
     }).and_then(|res| {
         pretty_success!("eth_getBalance", "{:?}", res);
-        assert_eq!(res.to_str(), "EthGetBalance");
+        // compare!(EthGetBalance, "EthGetBalance", res);
         Ok(())
     });
 

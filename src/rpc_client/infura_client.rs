@@ -9,13 +9,14 @@ use hyper::client::{HttpConnector, ResponseFuture};
 use hyper::header::HeaderValue;
 use ethereum_types::{Address};
 use serde_json as ser;
+use serde::Deserialize;
 
-use crate::ethereum_objects::BlockString;
+use crate::ethereum_objects::{BlockString, EthObjType, Block, Hex, Transaction};
 use crate::types::*;
 use crate::conf::Configuration;
 use crate::utils::IntoHexStr;
-use super::response_object::ResponseObject;
-use super::jsonrpc_object::JsonRpcObject;
+use super::response_object::{ResponseObject, ResponseError};
+use super::request_object::RequestObject;
 use super::err::RpcError;
 use super::EthRpcClient;
 use super::api_call::ApiCall;
@@ -78,15 +79,33 @@ impl InfuraClient  {
 
 // TODO build a better macro that is clearer #p3
 macro_rules! rpc_call {
-    ($sel:ident, $call: ident, $params: expr) => ({
+    ($obj:ident, $sel:ident, $call: ident, $params: expr) => ({
         let j = try_future!(
-            JsonRpcObject::default()
+             RequestObject::default()
                 .method(ApiCall::$call)
                 .params($params.to_vec())
                 .build()
         );
-        debug!("JSONOBJ: {:?}", j);
-        Box::new($sel.do_post(j))
+        
+        let res = $sel.do_post(j).and_then(|resp| {
+            let res = match_response!(resp);
+            res.map_err(|e| e.into())
+            /*let res = res.map(|i| {
+                if let EthObjType::$obj(obj) = i {
+                    obj
+                } else {
+                    panic!("Got unexpected object")
+                }
+            }).map_err(|e| e.into());
+            res*/
+        }).map(|i| {
+            if let EthObjType::$obj(obj) = i {
+                obj
+            } else {
+                panic!("NOPE");
+            }
+        });
+        Box::new(res)
     })
 }
 
@@ -108,30 +127,35 @@ macro_rules! de_bool {
     })
 }
 
-
-// TODO: write a custom serializer to clean this code up #p2
 impl EthRpcClient for InfuraClient {
-    fn block_number(&self) -> Box<dyn Future<Item=ResponseObject, Error = Error> + Send> {
-        return rpc_call!(self, EthBlockNumber, []);
+    fn block_number(&self) -> Box<dyn Future<Item=Hex, Error = Error> + Send> {
+        return rpc_call!(Hex, self, EthBlockNumber, []);
+        /*Box::new(res.map(|i| {
+            if let EthObjType::Hex(obj) = i {
+                obj
+            } else {
+                panic!("nope");
+            }
+        }))*/
     }
 
     fn get_block_by_number(&self, block_num: u64, show_tx_details: bool
-        ) -> Box<Future<Item=ResponseObject, Error = Error> + Send> 
+        ) -> Box<Future<Item=Block, Error = Error> + Send>
     {
-        return rpc_call!(self, EthGetBlockByNumber, [de_str!(block_num.into_hex_str()), de_bool!(show_tx_details)]);
+        return rpc_call!(Block, self, EthGetBlockByNumber, [de_str!(block_num.into_hex_str()), de_bool!(show_tx_details)]);
     }
-  
-    fn gas_price(&self) -> Box<dyn Future<Item=ResponseObject, Error=Error> + Send> {
-        return rpc_call!(self, EthGasPrice, []);
+
+    fn gas_price(&self) -> Box<dyn Future<Item=Hex, Error=Error> + Send> {
+        return rpc_call!(Hex, self, EthGasPrice, []);
     }
-   
+
     fn get_balance(&self, addr: Address, block_num: Option<usize>, block_str: Option<BlockString>
-        ) -> Box<dyn Future<Item=ResponseObject, Error=Error> + Send> 
-    {   
+        ) -> Box<dyn Future<Item=Hex, Error=Error> + Send>
+    {
         if block_num.is_some() {
-            return rpc_call!(self, EthGetBalance, [de_addr!(addr), de_str!(block_num.expect("scope is conditional; qed").into_hex_str())]);
+            return rpc_call!(Hex, self, EthGetBalance, [de_addr!(addr), de_str!(block_num.expect("scope is conditional; qed").into_hex_str())]);
         } else if block_str.is_some() {
-            return rpc_call!(self, EthGetBalance, [de_addr!(addr), de_str!(block_str.expect("scope is conditional; qed").to_str())]);
+            return rpc_call!(Hex, self, EthGetBalance, [de_addr!(addr), de_str!(block_str.expect("scope is conditional; qed").to_str())]);
         } else {
             return Box::new(futures::future::err(RpcError::MissingParameter("Missing `block_num` or `block_str`".to_owned()).into()));
         }
