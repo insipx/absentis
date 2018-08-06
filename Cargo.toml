@@ -9,6 +9,7 @@ edition = '2018'
 [dependencies]
 wu-diff = "0.1.0"
 tokio = "0.1.7"
+tokio-core = "0.1.17"
 hyper = "*"
 hyper-tls = "*"
 serde = "1.0.70"
@@ -20,7 +21,6 @@ http = "0.1"
 dirs = "1.0.2"
 log = { version = "0.4.3", features = ["std", "serde"] }
 env_logger = "0.5.11"
-#for tests
 regex = "*"
 bytes = "*"
 futures = "0.1.23"

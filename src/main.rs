@@ -1,4 +1,6 @@
 #![feature(rust_2018_preview, fs_read_write, use_extern_macros)]
+
+#[macro_use] mod utils;
 mod node;
 mod conf;
 mod err;

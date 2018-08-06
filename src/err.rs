@@ -27,6 +27,6 @@ impl From<toml::de::Error> for ConfigurationError {
 #[derive(Fail, Debug)]
 pub enum ClientError {
     #[fail(display = "Must Specify a {}", _0)]
-    MustSpecify(String, String),
+    MustSpecify(String),
 }
 

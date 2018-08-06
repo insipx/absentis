@@ -6,6 +6,7 @@ use serde_derive::*;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
+use std::path::Path;
 use failure::Error;
 use super::err::ConfigurationError;
 
@@ -87,10 +88,16 @@ impl Configuration {
         }
     }
     
-    pub fn ipc_path(&self) -> Result<String, ConfigurationError> {
+    pub fn ipc_path(&self) -> Result<PathBuf, ConfigurationError> {
         match self.node {
-            NodeType::Parity{url, port, ipc_path} => ipc_path.ok_or(ConfigurationError::NotFound("Parity IPC Path".into())),
-            NodeType::Geth{url, port, ipc_path} => ipc_path.ok_or(ConfigurationError::NotFound("Geth IPC Path".into()))
+            NodeType::Parity{url, port, ipc_path} => {
+                let path_str = ipc_path.ok_or(ConfigurationError::NotFound("Parity IPC Path".into()));
+                Ok(PathBuf::from(path_str?))
+            },
+            NodeType::Geth{url, port, ipc_path} => {
+                let path_str = ipc_path.ok_or(ConfigurationError::NotFound("Geth IPC Path".into()));
+                Ok(PathBuf::from(path_str?))
+            }
         }
     }
 
