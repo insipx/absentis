@@ -1,23 +1,21 @@
-use log::*;
 use failure::*;
-use colored::Colorize;
 use futures::{Future};
 use hyper::{Client, Uri as HyperUri, Method, Request};
 use hyper::rt::{Stream};
 use hyper_tls::HttpsConnector;
 use hyper::client::{HttpConnector, ResponseFuture};
 use hyper::header::HeaderValue;
-use ethereum_types::{Address};
+use ethereum_types::{Address, H256};
 use serde_json as ser;
-use serde::Deserialize;
 
 use crate::ethereum_objects::{BlockString, EthObjType, Block, Hex, Transaction};
 use crate::types::*;
 use crate::conf::Configuration;
 use crate::utils::IntoHexStr;
-use super::response_object::{ResponseObject, ResponseError};
+
 use super::request_object::RequestObject;
-use super::err::RpcError;
+use super::response_object::ResponseObject;
+use super::err::{RpcError, ResponseBuildError, TypeMismatchError};
 use super::EthRpcClient;
 use super::api_call::ApiCall;
 
@@ -87,24 +85,17 @@ macro_rules! rpc_call {
                 .build()
         );
         
-        let res = $sel.do_post(j).and_then(|resp| {
-            let res = match_response!(resp);
-            res.map_err(|e| e.into())
-            /*let res = res.map(|i| {
-                if let EthObjType::$obj(obj) = i {
-                    obj
+        let res = $sel.do_post(j)
+            .and_then(|resp| {
+                let res = match_response!(resp);
+                res.map_err(|e| e.into())
+            }).and_then(|res| {
+                if let EthObjType::$obj(obj) = res {
+                    futures::future::ok(obj)
                 } else {
-                    panic!("Got unexpected object")
+                    futures::future::err(ResponseBuildError::MismatchedTypes(TypeMismatchError::new(stringify!($obj).into(), res.into())).into())
                 }
-            }).map_err(|e| e.into());
-            res*/
-        }).map(|i| {
-            if let EthObjType::$obj(obj) = i {
-                obj
-            } else {
-                panic!("NOPE");
-            }
-        });
+            });
         Box::new(res)
     })
 }
@@ -112,6 +103,12 @@ macro_rules! rpc_call {
 macro_rules! de_addr {
     ($addr:ident) => ({
         ser::Value::String(format!("{:?}", $addr))
+    })
+}
+
+macro_rules! de_hash {
+    ($hash:ident) => ({
+        ser::Value::String(format!("{:?}", $hash))
     })
 }
 
@@ -128,21 +125,9 @@ macro_rules! de_bool {
 }
 
 impl EthRpcClient for InfuraClient {
+    
     fn block_number(&self) -> Box<dyn Future<Item=Hex, Error = Error> + Send> {
         return rpc_call!(Hex, self, EthBlockNumber, []);
-        /*Box::new(res.map(|i| {
-            if let EthObjType::Hex(obj) = i {
-                obj
-            } else {
-                panic!("nope");
-            }
-        }))*/
-    }
-
-    fn get_block_by_number(&self, block_num: u64, show_tx_details: bool
-        ) -> Box<Future<Item=Block, Error = Error> + Send>
-    {
-        return rpc_call!(Block, self, EthGetBlockByNumber, [de_str!(block_num.into_hex_str()), de_bool!(show_tx_details)]);
     }
 
     fn gas_price(&self) -> Box<dyn Future<Item=Hex, Error=Error> + Send> {
@@ -160,14 +145,31 @@ impl EthRpcClient for InfuraClient {
             return Box::new(futures::future::err(RpcError::MissingParameter("Missing `block_num` or `block_str`".to_owned()).into()));
         }
     }
+   
+    fn get_block_by_hash(&self, hash: H256, show_tx_details: bool) 
+        -> Box<Future<Item=Block, Error=Error> + Send> 
+    {   if show_tx_details {
+            return rpc_call!(Block, self, EthGetBlockByHash, [de_hash!(hash), de_bool!(show_tx_details)]);
+        } else {
+            return rpc_call!(Block, self, EthGetBlockByHash, [de_hash!(hash), de_bool!(show_tx_details)]);
+        }
+    }
+   
+    fn get_block_by_number(&self, block_num: u64, show_tx_details: bool) 
+        -> Box<Future<Item=Block, Error = Error> + Send>
+    {
+        return rpc_call!(Block, self, EthGetBlockByNumber, [de_str!(block_num.into_hex_str()), de_bool!(show_tx_details)]);
+    }
 }
 
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use log::*;
+    use colored::Colorize;
     use regex::Regex;
     use crate::types::Uri;
-    use super::*;
 
     #[test]
     fn it_should_build_uri() {

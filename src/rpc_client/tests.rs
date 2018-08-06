@@ -47,6 +47,25 @@ fn it_should_get_a_block_by_number() {
 }
 
 #[test]
+fn it_should_get_a_block_by_hash() {
+    env_logger::try_init();
+    //pub fn get_latest_block(conf: Configuration) -> Result<(), Error>  {
+    let client = InfuraClient::new().expect("Error building client!");
+    let hash = H256::from("0xb3b20624f8f0f86eb50dd04688409e5cea4bd02d700bf6e79e9384d47d6a5a35");
+
+    let task = client.get_block_by_hash(hash, false).map_err(|err: failure::Error| { 
+        pretty_err!(err);
+        panic!("Failed due to error");
+    }).and_then(|res| {
+        pretty_success!("eth_getBlockByHash", "{:?}", res);
+        // compare!(EthGetBlockByNumber, "EthGetBlockByNumber", res);
+        Ok(())
+    });
+    let mut rt = tokio::runtime::Runtime::new().expect("Could not construct tokio runtime");
+    rt.block_on(task);
+}
+
+#[test]
 fn it_should_get_gas_price() {
     env_logger::try_init();
     let client = InfuraClient::new().expect("Error building client!");

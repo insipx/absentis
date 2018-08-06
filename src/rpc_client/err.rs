@@ -1,4 +1,5 @@
 use failure::*;
+use serde_derive::Deserialize;
 use super::request_object::RequestBuildError;
 
 #[derive(Debug, Fail)]
@@ -21,7 +22,6 @@ pub enum RpcError {
     Net(#[fail(cause)] hyper::error::Error),
     #[fail(display = "Missing parameter: {}", _0)]
     MissingParameter(String)
-
 }
 
 impl From<hyper::error::Error> for RpcError {
@@ -62,20 +62,21 @@ impl From<serde_json::error::Error> for RpcError {
 
 #[derive(Fail, Debug)]
 pub struct TypeMismatchError {
-    invalid_type: String
+    expected: String,
+    got: String
 }
 
 impl TypeMismatchError {
-    crate fn new(err: String) -> Self {
+    crate fn new(expected: String, got: String) -> Self {
         TypeMismatchError {
-            invalid_type: err
+            expected, got,
         }
     }
 }
 
 impl std::fmt::Display for TypeMismatchError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.invalid_type)
+        write!(f, "expected type: {}, got: {}", self.expected, self.got)
     }
 }
 
@@ -83,10 +84,12 @@ impl std::fmt::Display for TypeMismatchError {
 pub enum ResponseBuildError {
     #[fail(display = "Error Deserializing JSON `Result`: {}", _0)]
     SerializationError(#[cause] serde_json::error::Error),
-    #[fail(display = "Error building Json Response Object")]
+    #[fail(display = "Error building Json Response Object {}: ", _0)]
     HyperError(#[cause] hyper::error::Error),
     #[fail(display = "Mismatched types during build: {}", _0)]
-    MismatchedTypes(TypeMismatchError)
+    MismatchedTypes(TypeMismatchError),
+    #[fail(display = "The Ethereum JsonRPC returned an error: {}, code: {}", _0, _1)]
+    RPCError(String, i64)
 }
 
 impl From<serde_json::error::Error> for ResponseBuildError {
@@ -95,5 +98,23 @@ impl From<serde_json::error::Error> for ResponseBuildError {
     }
 }
 
+impl From<hyper::error::Error> for ResponseBuildError {
+    fn from(err: hyper::error::Error) -> ResponseBuildError {
+        ResponseBuildError::HyperError(err)
+    }
+}
+
+#[derive(Deserialize, Debug)]
+pub struct JsonRpcError  {
+    code: i64,
+    message: String,
+    data: Option<serde_json::Value>
+}
+
+impl JsonRpcError {
+    pub fn info(&self) -> (String, i64) {
+        (self.message.clone(), self.code)
+    }
+}
 
 

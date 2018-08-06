@@ -13,3 +13,13 @@ pub enum EthObjType {
     Block(Block),
     Transaction(Transaction),
 }
+
+impl From<EthObjType> for String {
+    fn from(val: EthObjType) -> String {
+        match val {
+            EthObjType::Hex(_) => "Hex".to_string(),
+            EthObjType::Block(_) => "Block".to_string(),
+            EthObjType::Transaction(_) => "Transaction".to_string(),
+        }
+    }
+}

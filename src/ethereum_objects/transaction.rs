@@ -6,13 +6,17 @@ use super::hex::Hex;
 pub struct Transaction {
   hash: H256,
   nonce: Hex,
-  blockHash: H256,
-  blockNumber: Hex,
-  transactionIndex: Hex,
+  #[serde(rename="blockHash")]
+  block_hash: Option<H256>,
+  #[serde(rename="blockNumber")]
+  block_number: Option<Hex>,
+  #[serde(rename="transactionIndex")]
+  transaction_index: Option<Hex>,
   from: Address,
-  to: Address,
+  to: Option<Address>,
   value: Hex, 
-  gasPrice: Hex,
+  #[serde(rename="gasPrice")]
+  gas_price: Hex,
   gas: Hex,
   input: Hex,
 }
