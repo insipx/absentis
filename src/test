@@ -1,0 +1,10 @@
+
+
+
+
+
+
+enum JsonRpcObject {
+    Variant {id: , method: , params: , result: Block },
+    Variant2 {id: x, method: , params: ,}
+}
