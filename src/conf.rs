@@ -1,18 +1,14 @@
 // macros
-use log::*;
-use failure::Fail;
 use serde_derive::*;
 // structs
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
-use failure::Error;
 use super::err::ConfigurationError;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Configuration {
     node: NodeType,
-    transport: TransportType
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -21,18 +17,12 @@ enum NodeType {
     Geth{url: Option<String>, port: Option<usize>, ipc_path: Option<String> }, // url to parity node
     Infura{api_key: String} // infura API key
 }
-#[derive(Serialize, Deserialize, Debug)]
-pub enum TransportType {
-    Http,
-    Ipc,
-}
 
 impl Default for Configuration {
 
     fn default() -> Self {
         Configuration {
             node: NodeType::Parity{url: Some("http://localhost".to_owned()), port: Some(8545) , ipc_path: None},
-            transport: TransportType::Http
         }
     }
 }
@@ -65,38 +55,53 @@ impl Configuration {
 
 impl Configuration {
     pub fn infura_key(&self) -> Result<String, ConfigurationError>  {
-        match self.node {
-            NodeType::Infura{api_key} => Ok(api_key),
+        match &self.node {
+            NodeType::Infura{api_key} => Ok(api_key.to_string()),
             _ => Err(ConfigurationError::NotFound("Api Key".to_owned()))
         }
     }
     
     pub fn url(&self) -> Result<String, ConfigurationError> {
-        match self.node {
+        match &self.node {
             NodeType::Infura{api_key} => Ok(format!("{}{}", super::types::INFURA_URL, api_key) ),
             NodeType::Parity{url, port, ipc_path} => {
-                let url = url.ok_or(ConfigurationError::NotFound("Parity Url".to_owned()));
-                let port = port.ok_or(ConfigurationError::NotFound("Parity Port".to_owned()));
-                Ok(format!("{}:{}", url?, port?))
+                let u = &url
+                    .as_ref()
+                    .ok_or(ConfigurationError::NotFound("Parity Url".to_owned()))?;
+                let p = &port
+                    .as_ref()
+                    .ok_or(ConfigurationError::NotFound("Parity Port".to_owned()))?;
+                
+                Ok(format!("{}:{}", u, p))
             },
             NodeType::Geth{url, port, ipc_path} => {
-                let url = url.ok_or(ConfigurationError::NotFound("Geth Url".to_owned()));
-                let port = port.ok_or(ConfigurationError::NotFound("Geth Port".to_owned()));
-                Ok(format!("{}:{}", url?, port?))
+                let u = &url
+                    .as_ref()
+                    .ok_or(ConfigurationError::NotFound("Geth Url".to_owned()))?;
+                let p = &port
+                    .as_ref()
+                    .ok_or(ConfigurationError::NotFound("Geth Port".to_owned()))?;
+                Ok(format!("{}:{}", u, p))
             },
         }
     }
     
-    pub fn ipc_path(&self) -> Result<String, ConfigurationError> {
-        match self.node {
-            NodeType::Parity{url, port, ipc_path} => ipc_path.ok_or(ConfigurationError::NotFound("Parity IPC Path".into())),
-            NodeType::Geth{url, port, ipc_path} => ipc_path.ok_or(ConfigurationError::NotFound("Geth IPC Path".into()))
+    pub fn ipc_path(&self) -> Result<PathBuf, ConfigurationError> {
+        match &self.node {
+            NodeType::Parity{url, port, ipc_path} => {
+                let path_str = ipc_path
+                    .as_ref()
+                    .ok_or(ConfigurationError::NotFound("Parity IPC Path".into()));
+                Ok(PathBuf::from(path_str?))
+            },
+            NodeType::Geth{url, port, ipc_path} => {
+                let path_str = ipc_path
+                    .as_ref()
+                    .ok_or(ConfigurationError::NotFound("Geth IPC Path".into()));
+                Ok(PathBuf::from(path_str?))
+            }
+            _ => Err(ConfigurationError::NotFound("IPC Path not found".into()))
         }
-    }
-
-
-    pub fn transport(&self) -> &TransportType {
-        &self.transport
     }
 }
 
