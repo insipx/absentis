@@ -49,17 +49,17 @@ struct HttpBuilder {
 
 impl HttpBuilder {
     fn url(&mut self, val: String) -> &mut Self {
-        let mut new = self;
+        let new = self;
         new.url = Some(val);
         new
     }
     fn max_parallel(&mut self, val: usize) -> &mut Self {
-        let mut new = self;
+        let new = self;
         new.max_parallel = Some(val);
         new
     }
     fn handle(&mut self, val: tokio_core::reactor::Handle) -> &mut Self {
-        let mut new = self;
+        let new = self;
         new.handle = Some(val);
         new
     }
@@ -98,18 +98,18 @@ struct IpcBuilder {
 
 impl IpcBuilder {
     fn path(&mut self, path: PathBuf) -> &mut Self {
-        let mut new = self;
+        let new = self;
         new.path = Some(path);
         new
     }
     fn handle(&mut self, handle: tokio_core::reactor::Handle) -> &mut Self {
-        let mut new = self;
+        let new = self;
         new.handle = Some(handle);
         new
     }
     fn build(&self, ev_loop: tokio_core::reactor::Core) -> Result<Client<transports::ipc::Ipc>, ClientError> {
-        let path = self.path.as_ref().ok_or(ClientError::MustSpecify("Path".into()))?;
-        let handle = self.handle.as_ref().ok_or(ClientError::MustSpecify("Tokio-core Handle".into()))?;
+        let path = self.path.as_ref().ok_or_else(||ClientError::MustSpecify("Path".into()))?;
+        let handle = self.handle.as_ref().ok_or_else(||ClientError::MustSpecify("Tokio-core Handle".into()))?;
         let ipc = web3::transports::Ipc::with_event_loop(path.as_path(), handle);
 
         let ipc = match ipc {

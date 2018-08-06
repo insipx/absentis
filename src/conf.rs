@@ -4,6 +4,7 @@ use serde_derive::*;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
+use failure::Error;
 use super::err::ConfigurationError;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -64,23 +65,23 @@ impl Configuration {
     pub fn url(&self) -> Result<String, ConfigurationError> {
         match &self.node {
             NodeType::Infura{api_key} => Ok(format!("{}{}", super::types::INFURA_URL, api_key) ),
-            NodeType::Parity{url, port, ipc_path} => {
+            NodeType::Parity{url, port, ..} => {
                 let u = &url
                     .as_ref()
-                    .ok_or(ConfigurationError::NotFound("Parity Url".to_owned()))?;
+                    .ok_or_else(||ConfigurationError::NotFound("Parity Url".to_owned()))?;
                 let p = &port
                     .as_ref()
-                    .ok_or(ConfigurationError::NotFound("Parity Port".to_owned()))?;
+                    .ok_or_else(||ConfigurationError::NotFound("Parity Port".to_owned()))?;
                 
                 Ok(format!("{}:{}", u, p))
             },
-            NodeType::Geth{url, port, ipc_path} => {
+            NodeType::Geth{url, port, ..} => {
                 let u = &url
                     .as_ref()
-                    .ok_or(ConfigurationError::NotFound("Geth Url".to_owned()))?;
+                    .ok_or_else(||ConfigurationError::NotFound("Geth Url".to_owned()))?;
                 let p = &port
                     .as_ref()
-                    .ok_or(ConfigurationError::NotFound("Geth Port".to_owned()))?;
+                    .ok_or_else(||ConfigurationError::NotFound("Geth Port".to_owned()))?;
                 Ok(format!("{}:{}", u, p))
             },
         }
@@ -88,16 +89,16 @@ impl Configuration {
     
     pub fn ipc_path(&self) -> Result<PathBuf, ConfigurationError> {
         match &self.node {
-            NodeType::Parity{url, port, ipc_path} => {
+            NodeType::Parity{ipc_path, ..} => {
                 let path_str = ipc_path
                     .as_ref()
-                    .ok_or(ConfigurationError::NotFound("Parity IPC Path".into()));
+                    .ok_or_else(||ConfigurationError::NotFound("Parity IPC Path".into()));
                 Ok(PathBuf::from(path_str?))
             },
-            NodeType::Geth{url, port, ipc_path} => {
+            NodeType::Geth{ipc_path, ..} => {
                 let path_str = ipc_path
                     .as_ref()
-                    .ok_or(ConfigurationError::NotFound("Geth IPC Path".into()));
+                    .ok_or_else(||ConfigurationError::NotFound("Geth IPC Path".into()));
                 Ok(PathBuf::from(path_str?))
             }
             _ => Err(ConfigurationError::NotFound("IPC Path not found".into()))
