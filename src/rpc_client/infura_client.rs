@@ -146,19 +146,16 @@ impl EthRpcClient for InfuraClient {
         }
     }
    
-    fn get_block_by_hash(&self, hash: H256, show_tx_details: bool) 
+    fn get_block_by_hash(&self, hash: H256) 
         -> Box<Future<Item=Block, Error=Error> + Send> 
-    {   if show_tx_details {
-            return rpc_call!(Block, self, EthGetBlockByHash, [de_hash!(hash), de_bool!(show_tx_details)]);
-        } else {
-            return rpc_call!(Block, self, EthGetBlockByHash, [de_hash!(hash), de_bool!(show_tx_details)]);
-        }
+    {   
+        return rpc_call!(Block, self, EthGetBlockByHash, [de_hash!(hash), de_bool!(true)]);
     }
    
-    fn get_block_by_number(&self, block_num: u64, show_tx_details: bool) 
+    fn get_block_by_number(&self, block_num: u64) 
         -> Box<Future<Item=Block, Error = Error> + Send>
     {
-        return rpc_call!(Block, self, EthGetBlockByNumber, [de_str!(block_num.into_hex_str()), de_bool!(show_tx_details)]);
+        return rpc_call!(Block, self, EthGetBlockByNumber, [de_str!(block_num.into_hex_str()), de_bool!(true)]);
     }
 }
 

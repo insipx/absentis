@@ -22,9 +22,9 @@ pub trait EthRpcClient { //eth_ namespace
     fn block_number(&self) -> Box<dyn Future<Item=Hex, Error=Error> + Send>;
     fn gas_price(&self) -> Box<dyn Future<Item=Hex, Error=Error> + Send>;
     fn get_balance(&self, _: Address, _: Option<usize>, _: Option<BlockString>) -> Box<dyn Future<Item=Hex, Error=Error> + Send>;
-    fn get_block_by_hash(&self, _: H256, _: bool) 
+    fn get_block_by_hash(&self, _: H256) 
         -> Box<Future<Item=Block, Error=Error> + Send>;
-    fn get_block_by_number(&self, _: u64, _: bool ) -> Box<dyn Future<Item=Block, Error=Error> + Send>;
+    fn get_block_by_number(&self, _: u64) -> Box<dyn Future<Item=Block, Error=Error> + Send>;
 
 }
 
