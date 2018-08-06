@@ -34,7 +34,7 @@ fn it_should_get_a_block_by_number() {
     //pub fn get_latest_block(conf: Configuration) -> Result<(), Error>  {
     let client = InfuraClient::new().expect("Error building client!");
     
-    let task = client.get_block_by_number(300, true).map_err(|err: failure::Error| { 
+    let task = client.get_block_by_number(300).map_err(|err: failure::Error| { 
         pretty_err!(err);
         panic!("Failed due to error");
     }).and_then(|res| {
@@ -53,7 +53,7 @@ fn it_should_get_a_block_by_hash() {
     let client = InfuraClient::new().expect("Error building client!");
     let hash = H256::from("0xb3b20624f8f0f86eb50dd04688409e5cea4bd02d700bf6e79e9384d47d6a5a35");
 
-    let task = client.get_block_by_hash(hash, false).map_err(|err: failure::Error| { 
+    let task = client.get_block_by_hash(hash).map_err(|err: failure::Error| { 
         pretty_err!(err);
         panic!("Failed due to error");
     }).and_then(|res| {
