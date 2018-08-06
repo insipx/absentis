@@ -7,55 +7,41 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use failure::Error;
-
-#[derive(Fail, Debug)]
-pub enum ConfigurationError {
-    #[fail(display = "Could not find home directory. Try setting the $PATH variable")]
-    CouldNotFindHomeDir,
-    #[fail(display = "Invalid Toml")]
-    InvalidToml(#[fail(cause)] toml::de::Error),
-    #[fail(display = "Input/Output Error")]
-    IOError(#[fail(cause)] std::io::Error),
-}
-
-impl From<std::io::Error> for ConfigurationError {
-    fn from(err: std::io::Error) -> ConfigurationError {
-        ConfigurationError::IOError(err)
-    }
-}
-
-impl From<toml::de::Error> for ConfigurationError {
-    fn from(err: toml::de::Error) -> ConfigurationError {
-        ConfigurationError::InvalidToml(err)
-    }
-}
+use super::err::ConfigurationError;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Configuration {
-    infura_api_key: String,
+    node: NodeType,
+    transport: TransportType
 }
 
-pub trait Parse {
-    fn parse(&self) -> Result<Configuration, toml::de::Error>;
+#[derive(Serialize, Deserialize, Debug)]
+enum NodeType {
+    Parity{url: Option<String>, port: Option<usize>, ipc_path: Option<String> }, // url and port to Parity
+    Geth{url: Option<String>, port: Option<usize>, ipc_path: Option<String> }, // url to parity node
+    Infura{api_key: String} // infura API key
+}
+#[derive(Serialize, Deserialize, Debug)]
+pub enum TransportType {
+    Http,
+    Ipc,
 }
 
-impl Parse for String {
-    fn parse(&self) -> Result<Configuration, toml::de::Error> {
-        toml::from_str(self)
-    }
-}
+impl Default for Configuration {
 
-
-impl Configuration {
-    pub fn empty() -> Configuration {
+    fn default() -> Self {
         Configuration {
-            infura_api_key: "".to_string(),
+            node: NodeType::Parity{url: Some("http://localhost".to_owned()), port: Some(8545) , ipc_path: None},
+            transport: TransportType::Http
         }
     }
+}
+
+impl Configuration {
     
     /// create a new default configuration at ~/.config/absentis.toml
     pub fn new_default() -> Result<Configuration, Error> {
-        let empty_config = Self::empty();
+        let empty_config = Self::default();
         let config_path = Self::default_path()?;
         let mut file = fs::File::create(config_path.as_path())?;
         let toml = toml::to_string_pretty(&empty_config)?;
@@ -78,8 +64,49 @@ impl Configuration {
 
 
 impl Configuration {
-    pub fn api_key(&self) -> String {
-        self.infura_api_key.clone()
+    pub fn infura_key(&self) -> Result<String, ConfigurationError>  {
+        match self.node {
+            NodeType::Infura{api_key} => Ok(api_key),
+            _ => Err(ConfigurationError::NotFound("Api Key".to_owned()))
+        }
+    }
+    
+    pub fn url(&self) -> Result<String, ConfigurationError> {
+        match self.node {
+            NodeType::Infura{api_key} => Ok(format!("{}{}", super::types::INFURA_URL, api_key) ),
+            NodeType::Parity{url, port, ipc_path} => {
+                let url = url.ok_or(ConfigurationError::NotFound("Parity Url".to_owned()));
+                let port = port.ok_or(ConfigurationError::NotFound("Parity Port".to_owned()));
+                Ok(format!("{}:{}", url?, port?))
+            },
+            NodeType::Geth{url, port, ipc_path} => {
+                let url = url.ok_or(ConfigurationError::NotFound("Geth Url".to_owned()));
+                let port = port.ok_or(ConfigurationError::NotFound("Geth Port".to_owned()));
+                Ok(format!("{}:{}", url?, port?))
+            },
+        }
+    }
+    
+    pub fn ipc_path(&self) -> Result<String, ConfigurationError> {
+        match self.node {
+            NodeType::Parity{url, port, ipc_path} => ipc_path.ok_or(ConfigurationError::NotFound("Parity IPC Path".into())),
+            NodeType::Geth{url, port, ipc_path} => ipc_path.ok_or(ConfigurationError::NotFound("Geth IPC Path".into()))
+        }
+    }
+
+
+    pub fn transport(&self) -> &TransportType {
+        &self.transport
+    }
+}
+
+pub trait Parse {
+    fn parse(&self) -> Result<Configuration, toml::de::Error>;
+}
+
+impl Parse for String {
+    fn parse(&self) -> Result<Configuration, toml::de::Error> {
+        toml::from_str(self)
     }
 }
 
@@ -88,14 +115,14 @@ impl Configuration {
 mod tests {
     use super::*;
     use env_logger;
-   /* this test tends to screw things up
+    // this test tends to screw things up
     #[test]
     fn it_should_create_new_default_config() {
-        setup();
+        env_logger::try_init();
         let conf = Configuration::new_default().expect("Could not create new default configuration");
         debug!("Empty Config: {:?}", conf);
     }
-*/
+
     #[test]
     fn it_should_return_default_path() {
         env_logger::try_init();

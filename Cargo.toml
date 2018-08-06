@@ -28,6 +28,7 @@ colored = "1.6.1"
 hex = "0.3.2"
 enum-primitive-derive = "0.1.2"
 num-traits = "*"
+web3 = { git = "https://github.com/tomusdrw/rust-web3" }
 
 [dependencies.serde_json]
 version = "1.0.24"
