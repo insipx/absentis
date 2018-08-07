@@ -1,44 +1,107 @@
 // macros
 use serde_derive::*;
+use log::{log, info, error, debug};
 // structs
 use std::fs;
 use std::io::Write;
+use std::env;
 use std::path::PathBuf;
+use std::collections::HashMap;
 use failure::Error;
+use config::{self, File, Config};
 use super::err::ConfigurationError;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Configuration {
-    node: NodeType,
+    nodes: Option<Vec<EthNode>>,
+    infura: Option<Infura>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-enum NodeType {
-    Parity{url: Option<String>, port: Option<usize>, ipc_path: Option<String> }, // url and port to Parity
-    Geth{url: Option<String>, port: Option<usize>, ipc_path: Option<String> }, // url to parity node
-    Infura{api_key: String} // infura API key
+struct EthNode {
+    #[serde(rename = "type")]
+    kind: String,
+    http: Option<Http>,
+    ipc: Option<Ipc>
 }
+
+impl std::fmt::Display for EthNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.kind)
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct Http {
+    url: String,
+    port: usize,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct Ipc {
+    path: String
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct Infura {
+    api_key: String,
+}
+
 
 impl Default for Configuration {
 
     fn default() -> Self {
+
+        let mut nodes: Vec<EthNode> = Vec::new();
+        nodes.push(EthNode {
+            kind: "Parity".to_string(),
+            http: Some(Http {
+                url: "http://localhost".to_string(),
+                port: 8545 as usize
+            }),
+            ipc: None,
+        });
+
         Configuration {
-            node: NodeType::Parity{url: Some("http://localhost".to_owned()), port: Some(8545) , ipc_path: None},
+            nodes: Some(nodes),
+            infura: None,
         }
     }
 }
 
 impl Configuration {
-    
-    /// create a new default configuration at ~/.config/absentis.toml
-    pub fn new_default() -> Result<Configuration, Error> {
-        let empty_config = Self::default();
-        let config_path = Self::default_path()?;
-        let mut file = fs::File::create(config_path.as_path())?;
-        let toml = toml::to_string_pretty(&empty_config)?;
-        file.write_all(toml.as_bytes())?;
-        Ok(empty_config)
-    }
+    /// Default configuration path is ~/.config/absentis.toml (On UNIX)
+    /// this can be modified by passing -c (--config) to absentis
+    pub fn new(mut config_path: Option<PathBuf>) -> Result<Self, Error> {
+        let mut tmp = env::temp_dir();
+        tmp.push("absentis_default.toml");
+        info!("Temp Config Path: {:?}", &tmp);
+        let mut default_file = fs::File::create(tmp.clone())?;
+        let default_config = Self::default();
+        let toml = toml::to_string_pretty(&default_config)?;
+        default_file.write_all(toml.as_bytes())?;
+        info!("Default Configuration: {:?}", default_config);
+        if config_path.is_none() {
+            config_path = Some(Self::default_path().and_then(|p| { 
+                if !p.as_path().exists() { // check to make sure the user config exists, 
+                    let mut new_f = fs::File::create(p.as_path())?; // if not create an empty file so we can fill it with defaults
+                    new_f.write_all(toml.as_bytes())?;
+                }
+                Ok(p)
+            })?);
+        }
+        let mut conf = Config::new();
+        conf.merge(File::with_name(tmp.to_str().expect("Temp file should always be valid UTF-8")))?;
+        conf.merge(
+                File::with_name(config_path.expect("Scope is conditional; qed")
+                                .to_str()
+                                .ok_or_else(|| ConfigurationError::InvalidConfigPath)?
+                )
+            )?;
+
+        // info!("Configuration: {:?}", conf.try_into::<HashMap<String, String>>()?);
+        conf.try_into().map_err(|e| e.into())
+    } 
 
     pub fn from_default() -> Result<Configuration, Error> {
         let path = Self::default_path()?;
@@ -56,53 +119,39 @@ impl Configuration {
 
 impl Configuration {
     pub fn infura_key(&self) -> Result<String, ConfigurationError>  {
-        match &self.node {
-            NodeType::Infura{api_key} => Ok(api_key.to_string()),
-            _ => Err(ConfigurationError::NotFound("Api Key".to_owned()))
-        }
+        let inf = self.infura.as_ref()
+            .ok_or_else(||ConfigurationError::NotFound("Infura Api Key".to_string()))?;
+        Ok(inf.api_key.clone())
     }
     
     pub fn url(&self) -> Result<String, ConfigurationError> {
-        match &self.node {
-            NodeType::Infura{api_key} => Ok(format!("{}{}", super::types::INFURA_URL, api_key) ),
-            NodeType::Parity{url, port, ..} => {
-                let u = &url
-                    .as_ref()
-                    .ok_or_else(||ConfigurationError::NotFound("Parity Url".to_owned()))?;
-                let p = &port
-                    .as_ref()
-                    .ok_or_else(||ConfigurationError::NotFound("Parity Port".to_owned()))?;
-                
-                Ok(format!("{}:{}", u, p))
-            },
-            NodeType::Geth{url, port, ..} => {
-                let u = &url
-                    .as_ref()
-                    .ok_or_else(||ConfigurationError::NotFound("Geth Url".to_owned()))?;
-                let p = &port
-                    .as_ref()
-                    .ok_or_else(||ConfigurationError::NotFound("Geth Port".to_owned()))?;
-                Ok(format!("{}:{}", u, p))
-            },
-        }
+        // TODO: change this to give a vector of urls, so we can try which ones are up
+        let nodes = self.nodes
+            .as_ref()
+            .ok_or_else(|| ConfigurationError::OptionNotSet("Eth Nodes".to_string()))?; 
+        
+        let node = nodes
+            .get(0)
+            .ok_or_else(||ConfigurationError::OptionNotSet("Eth Node".to_string()))?;
+        
+        let http: &super::conf::Http = node.http.as_ref()
+            .ok_or_else(|| ConfigurationError::OptionNotSet(format!("Http info for node {}", node)))?;
+        
+        Ok(format!("{}:{}", http.url, http.port))
     }
     
     pub fn ipc_path(&self) -> Result<PathBuf, ConfigurationError> {
-        match &self.node {
-            NodeType::Parity{ipc_path, ..} => {
-                let path_str = ipc_path
-                    .as_ref()
-                    .ok_or_else(||ConfigurationError::NotFound("Parity IPC Path".into()));
-                Ok(PathBuf::from(path_str?))
-            },
-            NodeType::Geth{ipc_path, ..} => {
-                let path_str = ipc_path
-                    .as_ref()
-                    .ok_or_else(||ConfigurationError::NotFound("Geth IPC Path".into()));
-                Ok(PathBuf::from(path_str?))
-            }
-            _ => Err(ConfigurationError::NotFound("IPC Path not found".into()))
-        }
+        let nodes = self.nodes
+            .as_ref()
+            .ok_or_else(|| ConfigurationError::OptionNotSet("Eth Nodes".to_string()))?;
+        let node = nodes
+            .get(0)
+            .ok_or_else(|| ConfigurationError::OptionNotSet("Eth Node".to_string()))?;
+        
+        let ipc: &super::conf::Ipc = node.ipc.as_ref()
+            .ok_or_else(|| ConfigurationError::OptionNotSet(format!("IPC info for node {}", node)))?;
+        
+        Ok(PathBuf::from(ipc.path.clone()))
     }
 }
 
@@ -120,13 +169,23 @@ impl Parse for String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use log::{debug, error, info, log};
     use env_logger;
     // this test tends to screw things up
     #[test]
     fn it_should_create_new_default_config() {
         env_logger::try_init();
-        let conf = Configuration::new_default().expect("Could not create new default configuration");
-        debug!("Empty Config: {:?}", conf);
+        let conf = Configuration::new(None); 
+
+        match conf {
+            Ok(v) => {
+                info!("Default Config: {:?}", v);
+            }, 
+            Err(e) => {
+                error!("Error: {}", e);
+                panic!("Failed due to error");
+            }
+        }
     }
 
     #[test]

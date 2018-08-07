@@ -6,6 +6,7 @@ mod conf;
 mod err;
 mod client;
 mod types;
+mod transaction_finder;
 
 // TODO SOMETIME BEFORE RELEASE
 //  - make errors nice and not sloppy

@@ -9,7 +9,7 @@ use super::conf::Configuration;
 use super::err::ClientError;
 
 pub struct Client<T: BatchTransport> {  
-    web3: web3::Web3<T>,
+    pub web3: web3::Web3<T>,
     ev_loop: tokio_core::reactor::Core,
 }
 
@@ -20,6 +20,14 @@ impl<T> Client<T> where T: BatchTransport {
             web3: web3::Web3::new(transport),
             ev_loop,
         })
+    }
+    
+    pub fn remote(&self) -> tokio_core::reactor::Remote {
+        self.ev_loop.remote()
+    }
+    
+    pub fn handle(&self) -> tokio_core::reactor::Handle {
+        self.ev_loop.handle()
     }
 
     pub fn new_ipc(conf: &Configuration) -> Result<Client<transports::ipc::Ipc>, Error> {
