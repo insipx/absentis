@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use failure::Error;
 use config::{self, File, Config};
 use super::err::ConfigurationError;
+use super::types::INFURA_URL;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Configuration {
@@ -118,6 +119,10 @@ impl Configuration {
 
 
 impl Configuration {
+
+    fn infura_url(&self) -> Result<String, ConfigurationError> {
+        Ok(format!("{}{}", INFURA_URL, self.infura_key()?))
+    }
     pub fn infura_key(&self) -> Result<String, ConfigurationError>  {
         let inf = self.infura.as_ref()
             .ok_or_else(||ConfigurationError::NotFound("Infura Api Key".to_string()))?;
@@ -125,19 +130,23 @@ impl Configuration {
     }
     
     pub fn url(&self) -> Result<String, ConfigurationError> {
-        // TODO: change this to give a vector of urls, so we can try which ones are up
-        let nodes = self.nodes
-            .as_ref()
-            .ok_or_else(|| ConfigurationError::OptionNotSet("Eth Nodes".to_string()))?; 
-        
-        let node = nodes
-            .get(0)
-            .ok_or_else(||ConfigurationError::OptionNotSet("Eth Node".to_string()))?;
-        
-        let http: &super::conf::Http = node.http.as_ref()
-            .ok_or_else(|| ConfigurationError::OptionNotSet(format!("Http info for node {}", node)))?;
-        
-        Ok(format!("{}:{}", http.url, http.port))
+        if self.nodes.is_none() {
+            Ok(self.infura_url()?)
+        } else {
+            // TODO: change this to give a vector of urls, so we can try which ones are up
+            let nodes = self.nodes
+                .as_ref()
+                .ok_or_else(|| ConfigurationError::OptionNotSet("Eth Nodes".to_string()))?; 
+            
+            let node = nodes
+                .get(0)
+                .ok_or_else(||ConfigurationError::OptionNotSet("Eth Node".to_string()))?;
+            
+            let http: &super::conf::Http = node.http.as_ref()
+                .ok_or_else(|| ConfigurationError::OptionNotSet(format!("Http info for node {}", node)))?;
+            
+            Ok(format!("{}:{}", http.url, http.port))
+        }
     }
     
     pub fn ipc_path(&self) -> Result<PathBuf, ConfigurationError> {

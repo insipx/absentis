@@ -29,15 +29,15 @@ impl TransactionFinder {
     /// defaults:
     /// fromBlock: latest,
     /// toBlock: latest,
-    pub fn new(address: Address, to_block: Option<BlockNumber>, from_block: Option<BlockNumber>) -> Self {
+    pub fn new(address: Address, from_block: Option<BlockNumber>, to_block: Option<BlockNumber>) -> Self {
         
         let t_block = to_block.unwrap_or(BlockNumber::Latest);
         let f_block = from_block.unwrap_or(BlockNumber::Latest);
 
         TransactionFinder {
             address,
-            to_block: to_block.expect("Added default value; qed"),
-            from_block: from_block.expect("Added default value; qed"),
+            to_block: t_block,
+            from_block: f_block,
             transactions: Arc::new(Mutex::new(VecDeque::new()))
         }
     }
@@ -69,6 +69,9 @@ impl TransactionFinder {
             (BlockNumber::Latest, BlockNumber::Latest) => (latest()?, latest()?),
             (BlockNumber::Latest, BlockNumber::Earliest) => (latest()?, 0 as u64),
             (BlockNumber::Earliest, BlockNumber::Earliest) => (0 as u64, 0 as u64),
+            (BlockNumber::Number(t), BlockNumber::Number(f)) => (t, f),
+            (BlockNumber::Latest, BlockNumber::Number(f)) => (latest()?, f),
+            (BlockNumber::Number(t), BlockNumber::Earliest) => (t, 0 as u64),
             (_,_) => Err(TransactionFinderError::ImpossibleTo)?
         };
 
@@ -132,15 +135,24 @@ impl Stream for Crawl {
     }
 }
 
-/*
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::conf::Configuration;
+    use web3::transports::http::Http;
     #[test]
     fn test_crawl() {
-        let client = Client::new
-    
+        let conf = Configuration::from_default().expect("Should be ok if test passes");
+        let client
+            = Client::<Http>::new_http(&conf).expect("Could not construct client");
+        let addr = Address::from("0xfb6916095ca1df60bb79ce92ce3ea74c37c5d359");
+        
+        TransactionFinder::new(addr, Some(BlockNumber::Earliest), Some(BlockNumber::Number(6000000)))
+            .crawl(&client)
+            .expect("damn")
+            .for_each(|tx| {
+                println!("TX: {:#?}", tx);
+                Ok(())
+            });
     }
-
 }
-*/
