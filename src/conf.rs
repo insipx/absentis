@@ -62,10 +62,13 @@ impl Default for Configuration {
             }),
             ipc: None,
         });
+        let infura = Some(Infura {
+            api_key: "".to_string(),
+        });
 
         Configuration {
             nodes: Some(nodes),
-            infura: None,
+            infura,
         }
     }
 }
