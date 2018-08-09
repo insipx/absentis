@@ -2,7 +2,7 @@
 
 #[macro_use] mod utils;
 mod node;
-mod conf;
+mod config_file;
 mod err;
 mod client;
 mod types;
