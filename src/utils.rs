@@ -36,6 +36,7 @@ macro_rules! pretty_err {
     });
 
 }
+
 #[macro_export]
 macro_rules! pretty_info {
     ($frmt:expr, $($strs:expr),+) => ({
@@ -45,4 +46,11 @@ macro_rules! pretty_info {
 }
 
 
+#[macro_export]
+macro_rules! infura_url {
+    ($api_key:expr) => ({
+        use super::types::INFURA_URL;
+        format!("{}{}", INFURA_URL, $api_key)
+    });
+}
 

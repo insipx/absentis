@@ -46,7 +46,7 @@ impl<T> Client<T> where T: BatchTransport + Clone {
     pub fn new_ipc(conf: &Configuration) -> Result<Client<transports::ipc::Ipc>, Error> {
         let ev_loop = tokio_core::reactor::Core::new()?; 
         ClientBuilder::ipc()
-            .path(conf.ipc_path()?)
+            .path(PathBuf::from(conf.url()))
             .handle(ev_loop.handle())
             .build(ev_loop)
             .map_err(|e| e.into())
@@ -55,7 +55,7 @@ impl<T> Client<T> where T: BatchTransport + Clone {
     pub fn new_http(conf: &Configuration) -> Result<Client<transports::http::Http>, Error> {
         let ev_loop = tokio_core::reactor::Core::new()?; 
         ClientBuilder::http()
-           .url(conf.url()?)
+           .url(conf.url())
            .handle(ev_loop.handle())
            .build(ev_loop)
            .map_err(|e| e.into())

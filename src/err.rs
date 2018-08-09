@@ -4,9 +4,9 @@ use failure::Fail;
 pub enum ConfigurationError {
     #[fail(display = "Could not find home directory. Try setting the $PATH variable")]
     CouldNotFindHomeDir,
-    #[fail(display = "Invalid Toml")]
+    #[fail(display = "Invalid Toml: {}", _0)]
     InvalidToml(#[fail(cause)] toml::de::Error),
-    #[fail(display = "Error decoding configuration {}", _0)]
+    #[fail(display = "Error serializing configuration: {}", _0)]
     DecodeError(#[fail(cause)] toml::ser::Error),
     #[fail(display = "Input/Output Error")]
     IOError(#[fail(cause)] std::io::Error),
@@ -16,7 +16,16 @@ pub enum ConfigurationError {
     InvalidConfigPath,
     #[fail(display = "Option Not Set: {}", _0)]
     OptionNotSet(String),
+    #[fail(display = "Generation failed; Default configuration file already exists!")]
+    ConfigExists,
+    #[fail(display = "Config Error occurred")]
+    Config(#[cause] config::ConfigError),
+}
 
+impl From<config::ConfigError> for ConfigurationError {
+    fn from(err: config::ConfigError) -> ConfigurationError {
+        ConfigurationError::Config(err)
+    }
 }
 
 impl From<std::io::Error> for ConfigurationError {
