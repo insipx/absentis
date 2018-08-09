@@ -4,20 +4,23 @@ use web3::BatchTransport;
 use web3::transports;
 // use tokio::reactor::Reactor;
 use failure::Error;
+use futures::future::Future;
 use super::types::MAX_PARALLEL_REQUESTS;
 use super::conf::Configuration;
 use super::err::ClientError;
 
 pub struct Client<T: BatchTransport> {  
     pub web3: web3::Web3<T>,
+    pub web3_batch: web3::Web3<web3::transports::batch::Batch<T>>,
     ev_loop: tokio_core::reactor::Core,
 }
 
-impl<T> Client<T> where T: BatchTransport {
+impl<T> Client<T> where T: BatchTransport + Clone {
     pub fn new(transport: T) -> Result<Self, Error> {
         let ev_loop = tokio_core::reactor::Core::new()?; 
         Ok(Client {
-            web3: web3::Web3::new(transport),
+            web3: web3::Web3::new(transport.clone()),
+            web3_batch: web3::Web3::new(web3::transports::Batch::new(transport)),
             ev_loop,
         })
     }
@@ -28,6 +31,16 @@ impl<T> Client<T> where T: BatchTransport {
     
     pub fn handle(&self) -> tokio_core::reactor::Handle {
         self.ev_loop.handle()
+    }
+
+    pub fn turn(&mut self) -> () {
+        loop {
+            self.ev_loop.turn(None);
+        }
+    }
+
+    pub fn run(&mut self, fut: impl Future<Item=(), Error=()>) -> () {
+        self.ev_loop.run(fut);
     }
 
     pub fn new_ipc(conf: &Configuration) -> Result<Client<transports::ipc::Ipc>, Error> {
@@ -93,7 +106,8 @@ impl HttpBuilder {
 
 
         Ok(Client {
-            web3: web3::Web3::new(http),
+            web3: web3::Web3::new(http.clone()),
+            web3_batch: web3::Web3::new(web3::transports::batch::Batch::new(http)),
             ev_loop,
         })
     }
@@ -133,7 +147,8 @@ impl IpcBuilder {
         };
 
         Ok(Client {
-            web3: web3::Web3::new(ipc),
+            web3: web3::Web3::new(ipc.clone()),
+            web3_batch: web3::Web3::new(web3::transports::batch::Batch::new(ipc)),
             ev_loop,
         })
     }

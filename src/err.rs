@@ -47,4 +47,12 @@ pub enum ClientError {
 pub enum TransactionFinderError {
     #[fail(display = "Impossible to find transactions from a later block to an earlier block!")]
     ImpossibleTo,
+    #[fail(display = "A Web3 Error Occured: {}, Backtrace: {}", _0, _1)]
+    Web3(String, String),
+}
+
+impl From<web3::error::Error> for TransactionFinderError {
+    fn from(err: web3::error::Error) -> TransactionFinderError {
+        TransactionFinderError::Web3(err.description().to_string(), format!("{:#?}", err.backtrace()))
+    }
 }
