@@ -30,6 +30,7 @@ num-traits = "*"
 web3 = { git = "https://github.com/tomusdrw/rust-web3" }
 futures = "0.1.23"
 config = "0.9.0"
+separator = "0.3.1"
 
 [dependencies.ethereum-types]
 version = "0.3.2"
