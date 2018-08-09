@@ -1,10 +1,12 @@
 #![feature(rust_2018_preview, fs_read_write, use_extern_macros)]
+
 #[macro_use] mod utils;
 mod node;
-mod ethereum_objects;
 mod conf;
+mod err;
+mod client;
 mod types;
-mod rpc_client;
+mod transaction_finder;
 
 // TODO SOMETIME BEFORE RELEASE
 //  - make errors nice and not sloppy

@@ -9,10 +9,11 @@ edition = '2018'
 [dependencies]
 wu-diff = "0.1.0"
 tokio = "0.1.7"
+tokio-core = "0.1.17"
 hyper = "*"
 hyper-tls = "*"
 serde = "1.0.70"
-# serde_json = "1.0.24"
+serde_json = "1.0.24"
 serde_derive = "1.0.70"
 failure = "0.1.1"
 toml = "0.4"
@@ -20,18 +21,16 @@ http = "0.1"
 dirs = "1.0.2"
 log = { version = "0.4.3", features = ["std", "serde"] }
 env_logger = "0.5.11"
-#for tests
 regex = "*"
 bytes = "*"
-futures = "0.1.23"
 colored = "1.6.1"
 hex = "0.3.2"
 enum-primitive-derive = "0.1.2"
 num-traits = "*"
-
-[dependencies.serde_json]
-version = "1.0.24"
-features = ["preserve_order"]
+web3 = { git = "https://github.com/tomusdrw/rust-web3" }
+futures = "0.1.23"
+config = "0.9.0"
+separator = "0.3.1"
 
 [dependencies.ethereum-types]
 version = "0.3.2"
