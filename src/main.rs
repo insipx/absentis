@@ -9,6 +9,7 @@ mod err;
 mod client;
 mod types;
 mod transaction_finder;
+mod transaction_validator;
 
 // TODO SOMETIME BEFORE RELEASE
 //  - make errors nice and not sloppy

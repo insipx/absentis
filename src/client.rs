@@ -1,6 +1,6 @@
 use log::{log, error};
 use std::path::PathBuf;
-use web3::BatchTransport;
+use web3::{Transport, BatchTransport};
 use web3::transports;
 // use tokio::reactor::Reactor;
 use failure::Error;
@@ -9,13 +9,14 @@ use super::types::MAX_PARALLEL_REQUESTS;
 use super::conf::Configuration;
 use super::err::ClientError;
 
-pub struct Client<T: BatchTransport> {  
+pub struct Client<T: Transport> where web3::transports::batch::Batch<T>: Transport { 
     pub web3: web3::Web3<T>,
     pub web3_batch: web3::Web3<web3::transports::batch::Batch<T>>,
     ev_loop: tokio_core::reactor::Core,
 }
 
 impl<T> Client<T> where T: BatchTransport + Clone {
+    
     pub fn new(transport: T) -> Result<Self, Error> {
         let ev_loop = tokio_core::reactor::Core::new()?; 
         Ok(Client {

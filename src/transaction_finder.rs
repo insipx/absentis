@@ -12,6 +12,7 @@ use web3::helpers::CallResult;
 use std::sync::{Arc, Mutex};
 use std::collections::VecDeque;
 use std::thread;
+use super::utils::latest_block as latest;
 use super::err::TransactionFinderError;
 use super::client::Client;
 use super::types::MAX_BATCH_SIZE;
@@ -46,32 +47,16 @@ impl TransactionFinder {
     pub fn crawl<T>(self, client: &Client<T>) 
         -> Result<Crawl, TransactionFinderError>
         where 
-            T: BatchTransport + Send + Sync,
+            T: BatchTransport + Send + Sync + 'static,
             <T as web3::BatchTransport>::Batch: Send
             // <T as web3::BatchTransport>: Send + Sync
     {   
-        let latest = || { 
-            let b = client.web3.eth().block_number().wait();
-            let b = match b {
-                Ok(v) => v,
-                Err(e) => {
-                    pretty_err!("{}{}", "Could not get latest block: ", e.description());
-                    if let Some(bt) = e.backtrace() {
-                        error!("Backtrace: {:?}", bt);
-                    }
-                    panic!("Shutting down...");
-                }
-
-            };
-            b.as_u64()
-        };
-
         let (to, from) = match (self.to_block, self.from_block) {
-            (BlockNumber::Latest, BlockNumber::Latest) => (latest(), latest()),
-            (BlockNumber::Latest, BlockNumber::Earliest) => (latest(), 0 as u64),
+            (BlockNumber::Latest, BlockNumber::Latest) => (latest(client), latest(client)),
+            (BlockNumber::Latest, BlockNumber::Earliest) => (latest(client), 0 as u64),
             (BlockNumber::Earliest, BlockNumber::Earliest) => (0 as u64, 0 as u64),
             (BlockNumber::Number(t), BlockNumber::Number(f)) => (t, f),
-            (BlockNumber::Latest, BlockNumber::Number(f)) => (latest(), f),
+            (BlockNumber::Latest, BlockNumber::Number(f)) => (latest(client), f),
             (BlockNumber::Number(t), BlockNumber::Earliest) => (t, 0 as u64),
             (_,_) => Err(TransactionFinderError::ImpossibleTo)?
         };
@@ -110,7 +95,7 @@ impl TransactionFinder {
                     });
                     Ok(())
                 });
-                client.handle().spawn_send(batch);
+                client.handle().spawn(batch);
             }
         }
         Ok(Crawl { inner: rx })
@@ -138,7 +123,7 @@ mod tests {
     use web3::transports::http::Http;
     #[test]
     fn test_crawl() {
-        let conf = Configuration::from_default().expect("Should be ok if test passes");
+        let conf = Configuration::new().expect("COuld not create configuration");
         let addr = Address::from("0xfb6916095ca1df60bb79ce92ce3ea74c37c5d359");
         let mut client = Client::<web3::transports::http::Http>::new_http(&conf).expect("Could not build client");
         let txs = TransactionFinder::new(addr, Some(BlockNumber::Number(500000)), Some(BlockNumber::Number(1000000)))

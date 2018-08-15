@@ -27,13 +27,16 @@ colored = "1.6.1"
 hex = "0.3.2"
 enum-primitive-derive = "0.1.2"
 num-traits = "*"
-web3 = { git = "https://github.com/tomusdrw/rust-web3" }
+web3 = { git = "https://github.com/InsidiousMind/rust-web3/", branch="insi_traces-api" }
 futures = "0.1.23"
 config = "0.9.0"
 separator = "0.3.1"
 clap = { version= "2.32", features = ["yaml"]}
 reduce = "0.1"
 pretty_env_logger = "0.2.4"
+csv = "1"
+rayon = "1.0.2"
+evmap = "4.0.0"
 
 [dependencies.ethereum-types]
 version = "0.3.2"

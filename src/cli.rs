@@ -19,14 +19,15 @@ pub fn parse() -> Result<CLIArgs, Error> {
     let mut file: Option<ConfigFile> = None;
     let mut url: Option<String> = None; 
     let mut transport: Option<Transport> = None;
-
-    let log_level = match matches.occurrences_of("v") {
+    
+    let log_level = match matches.occurrences_of("verbose") {
         0 => LogLevel::None,
         1 => LogLevel::Pleasant,
         2 => LogLevel::Tolerable,
         3 => LogLevel::InsaneMode,
         4 | _ => { 
-            println!("{}", "You're beyond Insane".bright_red().on_blue().blink());
+            print!("{}", "You're beyond Insane:".bright_red().bold().on_black());
+            println!("{}", " Insane mode activated".magenta().blink());
             LogLevel::InsaneMode
         }
     };

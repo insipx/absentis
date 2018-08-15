@@ -13,7 +13,7 @@ pub struct Configuration {
     url: String,
     transport: Transport,
 }
-
+#[derive(Debug)]
 pub enum LogLevel {
     None,   // Error by default
     Pleasant, // info's/warns
@@ -76,7 +76,7 @@ impl Configuration {
     }
 
     pub fn url(&self) -> String {
-        unimplemented!();
+        self.url.clone()
     }
 
     pub fn ipc_path(&self) -> PathBuf {

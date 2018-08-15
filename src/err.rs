@@ -65,3 +65,16 @@ impl From<web3::error::Error> for TransactionFinderError {
         TransactionFinderError::Web3(err.description().to_string(), format!("{:#?}", err.backtrace()))
     }
 }
+
+
+#[derive(Fail, Debug)]
+pub enum TransactionValidatorError {
+    #[fail(display = "CSV parsing failed: {}", _0)]
+    CSV(csv::Error)
+}
+
+impl From<csv::Error> for TransactionValidatorError {
+    fn from(err: csv::Error) -> TransactionValidatorError {
+        TransactionValidatorError::CSV(err)  
+    }
+}
