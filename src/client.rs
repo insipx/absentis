@@ -9,27 +9,27 @@ use super::types::MAX_PARALLEL_REQUESTS;
 use super::conf::Configuration;
 use super::err::ClientError;
 
-pub struct Client<T: Transport> where web3::transports::batch::Batch<T>: Transport { 
+pub struct Client<T: Transport> where web3::transports::batch::Batch<T>: Transport {
     pub web3: web3::Web3<T>,
     pub web3_batch: web3::Web3<web3::transports::batch::Batch<T>>,
     ev_loop: tokio_core::reactor::Core,
 }
 
 impl<T> Client<T> where T: BatchTransport + Clone {
-    
+
     pub fn new(transport: T) -> Result<Self, Error> {
-        let ev_loop = tokio_core::reactor::Core::new()?; 
+        let ev_loop = tokio_core::reactor::Core::new()?;
         Ok(Client {
             web3: web3::Web3::new(transport.clone()),
             web3_batch: web3::Web3::new(web3::transports::Batch::new(transport)),
             ev_loop,
         })
     }
-    
+
     pub fn remote(&self) -> tokio_core::reactor::Remote {
         self.ev_loop.remote()
     }
-    
+
     pub fn handle(&self) -> tokio_core::reactor::Handle {
         self.ev_loop.handle()
     }
@@ -40,12 +40,16 @@ impl<T> Client<T> where T: BatchTransport + Clone {
         }
     }
 
-    pub fn run(&mut self, fut: impl Future<Item=(), Error=()>) -> () {
-        self.ev_loop.run(fut);
+    pub fn run<R, E>(&mut self, fut: impl Future<Item=R, Error=E>) -> Result<R, E> {
+        self.ev_loop.run(fut)
+    }
+
+    pub fn ev_loop(&mut self) -> &mut tokio_core::reactor::Core {
+        &mut self.ev_loop
     }
 
     pub fn new_ipc(conf: &Configuration) -> Result<Client<transports::ipc::Ipc>, Error> {
-        let ev_loop = tokio_core::reactor::Core::new()?; 
+        let ev_loop = tokio_core::reactor::Core::new()?;
         ClientBuilder::ipc()
             .path(PathBuf::from(conf.url()))
             .handle(ev_loop.handle())
@@ -54,7 +58,7 @@ impl<T> Client<T> where T: BatchTransport + Clone {
     }
 
     pub fn new_http(conf: &Configuration) -> Result<Client<transports::http::Http>, Error> {
-        let ev_loop = tokio_core::reactor::Core::new()?; 
+        let ev_loop = tokio_core::reactor::Core::new()?;
         ClientBuilder::http()
            .url(conf.url())
            .handle(ev_loop.handle())
@@ -90,7 +94,7 @@ impl HttpBuilder {
         let url = self.url.as_ref().ok_or_else(|| ClientError::MustSpecify("URL".into()))?;
         let handle = self.handle.as_ref().ok_or_else(|| ClientError::MustSpecify("URL".into()))?;
         let max = self.max_parallel.unwrap_or(MAX_PARALLEL_REQUESTS);
-        let http = 
+        let http =
             web3::transports::Http::with_event_loop(url,handle,max);
 
         let http = match http {
@@ -175,3 +179,4 @@ impl ClientBuilder {
         }
     }
 }
+

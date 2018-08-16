@@ -70,11 +70,23 @@ impl From<web3::error::Error> for TransactionFinderError {
 #[derive(Fail, Debug)]
 pub enum TransactionValidatorError {
     #[fail(display = "CSV parsing failed: {}", _0)]
-    CSV(csv::Error)
+    CSV(csv::Error),
+    #[fail(display = "Could not ascertain type of Transaction Part from Batch Request in order to build local cache")]
+    FailedToBuildLocalCache,
+    #[fail(display = "Error deserializing JSON: {}", _0)]
+    FailedToDecode(serde_json::Error),
+    #[fail(display = "Could not find: {}", _0)]
+    CouldNotFind(String)
 }
 
 impl From<csv::Error> for TransactionValidatorError {
     fn from(err: csv::Error) -> TransactionValidatorError {
         TransactionValidatorError::CSV(err)  
+    }
+}
+
+impl From<serde_json::Error> for TransactionValidatorError {
+    fn from(err: serde_json::Error) -> TransactionValidatorError {
+        TransactionValidatorError::FailedToDecode(err)
     }
 }

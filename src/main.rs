@@ -1,28 +1,32 @@
-#![feature(rust_2018_preview, fs_read_write, use_extern_macros)]
-use log::*;
+#![feature(rust_2018_preview, fs_read_write)]
 #[macro_use] mod utils;
+mod types;
 mod config_file;
 mod conf;
 mod cli;
 mod node;
 mod err;
 mod client;
-mod types;
 mod transaction_finder;
 mod transaction_validator;
+mod filter;
+mod etherscan;
+
+use log::*;
+use failure::Error;
 
 // TODO SOMETIME BEFORE RELEASE
 //  - make errors nice and not sloppy
 
-fn main() {
+fn main() -> Result<(), Error>{
     pretty_env_logger::init();
-    let _conf = match conf::Configuration::new() {
+    match conf::Configuration::new() {
         Err(e) => {
             error!("{}", e);
             trace!("Cause: {}", e.as_fail());
             trace!("Backtrace: {:#?}", e.backtrace());
-            std::process::exit(1);
+            Err(e)
         },
-        Ok(v) => v
-    };
+        Ok(v) => Ok(())
+    }
 }

@@ -33,7 +33,7 @@ impl TransactionFinder {
     /// fromBlock: latest,
     /// toBlock: latest,
     pub fn new(address: Address, from_block: Option<BlockNumber>, to_block: Option<BlockNumber>) -> Self {
-        
+
         let t_block = to_block.unwrap_or(BlockNumber::Latest);
         let f_block = from_block.unwrap_or(BlockNumber::Latest);
 
@@ -44,13 +44,13 @@ impl TransactionFinder {
         }
     }
 
-    pub fn crawl<T>(self, client: &Client<T>) 
+    pub fn crawl<T>(self, client: &Client<T>)
         -> Result<Crawl, TransactionFinderError>
-        where 
+        where
             T: BatchTransport + Send + Sync + 'static,
             <T as web3::BatchTransport>::Batch: Send
             // <T as web3::BatchTransport>: Send + Sync
-    {   
+    {
         let (to, from) = match (self.to_block, self.from_block) {
             (BlockNumber::Latest, BlockNumber::Latest) => (latest(client), latest(client)),
             (BlockNumber::Latest, BlockNumber::Earliest) => (latest(client), 0 as u64),
@@ -64,18 +64,18 @@ impl TransactionFinder {
         if from > to {
             return Err(TransactionFinderError::ImpossibleTo);
         }
-        
+
         let addr = self.address.clone();
         let (tx, rx): (UnboundedSender<Transaction>, UnboundedReceiver<Transaction>) = unbounded();
 
         for i in from..=to {
             client.web3_batch.eth().block_with_txs(BlockId::Number(BlockNumber::Number(i)));
 
-            if i % MAX_BATCH_SIZE == 0 || i == to { 
+            if i % MAX_BATCH_SIZE == 0 || i == to {
                 let txx = tx.clone();
                 let batch = client.web3_batch.transport().submit_batch().then(move |blks| {
                     pretty_info!("{}", "Batch submitted");
-                    
+
                     let blks: Vec<Block<Transaction>> = match blks {
                         Err(e) => panic!("Error querying block: {}", e),
                         Ok(v) => {
@@ -121,12 +121,13 @@ mod tests {
     use super::*;
     use super::super::conf::Configuration;
     use web3::transports::http::Http;
+    /*
     #[test]
     fn test_crawl() {
         let conf = Configuration::new().expect("COuld not create configuration");
         let addr = Address::from("0xfb6916095ca1df60bb79ce92ce3ea74c37c5d359");
         let mut client = Client::<web3::transports::http::Http>::new_http(&conf).expect("Could not build client");
-        let txs = TransactionFinder::new(addr, Some(BlockNumber::Number(500000)), Some(BlockNumber::Number(1000000)))
+        let txs = TransactionFinder::new(addr, Some(BlockNumber::Number(990000)), Some(BlockNumber::Number(1000000)))
             .crawl(&client).expect("Could not construct stream")
             .for_each(|tx| {
                 info!("TX: {:?}", tx);
@@ -134,4 +135,5 @@ mod tests {
             });
         client.run(txs);
     }
+    */
 }

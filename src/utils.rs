@@ -38,7 +38,17 @@ macro_rules! pretty_err {
         let string = format!($format, $str.bright_red().bold().underline(), $($muted.red().dimmed()),+);
         error!("{}", string);
     });
+}
 
+#[macro_export]
+macro_rules! verb_msg {
+    ($msg: expr) => ({
+        format!("{} on line: {}, col: {}, in file: {}", $msg, line!(), column!(), file!())
+    });
+    ($msg: expr, $( $frmt:expr ),*) => ({
+        let string = format!($msg, $($frmt),*);
+        format!("{} on line: {}, col: {}, in file: {}", string, line!(), column!(), file!())
+    })
 }
 
 #[macro_export]
@@ -55,6 +65,24 @@ macro_rules! infura_url {
     ($api_key:expr) => ({
         use super::types::INFURA_URL;
         format!("{}{}", INFURA_URL, $api_key)
+    });
+}
+
+#[macro_export]
+macro_rules! panic_web3 {
+    ($web3:expr) => ({
+        pretty_err!("{}, {}", "Web3 Error submitting batch!", format!("{}", $web3));
+        panic!("Shutting down due to web3 error in: {}, {}, {}", line!(), column!(), file!());
+    });
+}
+
+#[macro_export]
+macro_rules! try_web3 {
+    ($web3:expr) => ({
+        match $web3 {
+            Err(e) => panic_web3!(e),
+            Ok(v) => v,
+        }
     });
 }
 
@@ -76,5 +104,4 @@ pub fn latest_block<T>(client: &Client<T>) -> u64
     };
     b.as_u64()
 }
-
 
