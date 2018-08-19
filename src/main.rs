@@ -1,4 +1,3 @@
-#![feature(rust_2018_preview, fs_read_write)]
 #[macro_use] mod utils;
 mod types;
 mod config_file;
@@ -20,13 +19,6 @@ use failure::Error;
 
 fn main() -> Result<(), Error>{
     pretty_env_logger::init();
-    match conf::Configuration::new() {
-        Err(e) => {
-            error!("{}", e);
-            trace!("Cause: {}", e.as_fail());
-            trace!("Backtrace: {:#?}", e.backtrace());
-            Err(e)
-        },
-        Ok(v) => Ok(())
-    }
+    let conf = conf::Configuration::new()?;
+    Ok(())
 }

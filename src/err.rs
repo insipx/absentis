@@ -76,7 +76,9 @@ pub enum TransactionValidatorError {
     #[fail(display = "Error deserializing JSON: {}", _0)]
     FailedToDecode(serde_json::Error),
     #[fail(display = "Could not find: {}", _0)]
-    CouldNotFind(String)
+    CouldNotFind(String),
+    #[fail(display = "{}", _0)]
+    Etherscan(super::etherscan::EtherScanError),
 }
 
 impl From<csv::Error> for TransactionValidatorError {
@@ -88,5 +90,11 @@ impl From<csv::Error> for TransactionValidatorError {
 impl From<serde_json::Error> for TransactionValidatorError {
     fn from(err: serde_json::Error) -> TransactionValidatorError {
         TransactionValidatorError::FailedToDecode(err)
+    }
+}
+
+impl From<super::etherscan::EtherScanError> for TransactionValidatorError {
+    fn from(err: super::etherscan::EtherScanError) -> TransactionValidatorError {
+        TransactionValidatorError::Etherscan(err)
     }
 }

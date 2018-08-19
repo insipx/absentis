@@ -1,13 +1,13 @@
-use log::{log, error};
+use log::*;
 use std::path::PathBuf;
-use web3::{Transport, BatchTransport};
-use web3::transports;
-// use tokio::reactor::Reactor;
+use web3::{Transport, BatchTransport, transports};
 use failure::Error;
 use futures::future::Future;
-use super::types::MAX_PARALLEL_REQUESTS;
-use super::conf::Configuration;
-use super::err::ClientError;
+use super::{
+    types::MAX_PARALLEL_REQUESTS,
+    conf::Configuration,
+    err::ClientError,
+};
 
 pub struct Client<T: Transport> where web3::transports::batch::Batch<T>: Transport {
     pub web3: web3::Web3<T>,
@@ -46,6 +46,11 @@ impl<T> Client<T> where T: BatchTransport + Clone {
 
     pub fn ev_loop(&mut self) -> &mut tokio_core::reactor::Core {
         &mut self.ev_loop
+    }
+
+    /// returns a new web3_batch instance. useful for separating out types of requests
+    pub fn batch(&self) -> web3::Web3<web3::transports::batch::Batch<T>> {
+        self.web3_batch.clone()
     }
 
     pub fn new_ipc(conf: &Configuration) -> Result<Client<transports::ipc::Ipc>, Error> {
@@ -179,4 +184,3 @@ impl ClientBuilder {
         }
     }
 }
-

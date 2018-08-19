@@ -1,60 +1,84 @@
 use serde_derive::*;
-use web3::types::{H256, Bytes, Address};
-use ::super::types::ETHERSCAN_URL;
+use serde::de::{self, Deserialize, Deserializer};
+use web3::types::{H256, U256, Bytes, Address};
+use std::fmt::Debug;
 
 // 60,137,282,256
-#[derive(Deserialize)]
+#[derive(Deserialize, PartialEq, Debug, Clone)]
 pub struct EtherScanTx {
-    #[serde(rename = "blockNumber")]
-    block_number: usize,
-    #[serde(rename = "timeStamp")]
-    time_stamp: u64,
-    hash: H256,
-    nonce: usize,
+    #[serde(rename = "blockNumber", deserialize_with = "from_str")]
+    pub block_number: u64,
+    #[serde(rename = "timeStamp", deserialize_with = "from_str")]
+    pub time_stamp: u64,
+    pub hash: H256,
+    #[serde(deserialize_with = "from_str")]
+    pub nonce: u64,
     #[serde(rename = "blockHash")]
-    block_hash: H256,
-    #[serde(rename = "transactionIndex")]
-    transaction_index: usize,
-    from: Address,
-    to: Address,
-    value: usize,
-    gas: usize,
-    #[serde(rename = "gasPrice")]
-    gas_price: u64,
-    #[serde(rename = "isError")]
-    is_error: bool,
-    txreceipt_status: String, // no rename needed
-    input: Bytes,
+    pub block_hash: H256,
+    #[serde(rename = "transactionIndex", deserialize_with="from_str")]
+    pub transaction_index: usize,
+    pub from: Address,
+    pub to: String,
+    #[serde(deserialize_with="from_str")]
+    pub value: U256,
+    #[serde(deserialize_with="from_str")]
+    pub gas: U256,
+    #[serde(rename = "gasPrice", deserialize_with="from_str")]
+    pub gas_price: U256,
+    #[serde(default)]
+    pub is_error: String,
+    pub txreceipt_status: String, // no rename needed
+    pub input: Bytes,
     #[serde(rename = "contractAddress")]
-    contract_address: String,
-    #[serde(rename = "cumulative_gas_used")]
-    cumulative_gas_used: usize,
-    #[serde(rename = "gasUsed")]
-    gas_used: usize,
-    confirmations: usize,
+    pub contract_address: String,
+    #[serde(default, rename = "cumulative_gas_used", deserialize_with="from_str")]
+    pub cumulative_gas_used: u64,
+    #[serde(rename = "gasUsed", deserialize_with="from_str")]
+    pub gas_used: u64,
+    #[serde(deserialize_with="from_str")]
+    pub confirmations: u64,
 }
 
+#[derive(Deserialize, Debug)]
+pub struct EtherScanResponse<T: Debug> {
+    #[serde(deserialize_with = "from_str")]
+    status: i32,
+    message: String,
+    pub result: T,
+}
+
+fn from_str<'de, T, D>(deserializer: D) -> Result<T, D::Error>
+where
+    T: std::str::FromStr,
+    T::Err: std::fmt::Display,
+    D: Deserializer<'de>
+{
+    let s = String::deserialize(deserializer)?;
+    T::from_str(&s).map_err(de::Error::custom)
+}
 // TODO: #p1 these should be functions, but i'm lazy
 #[macro_export]
 macro_rules! eth_txlist {
     ($addr:expr, $from:expr, $to:expr) => ({
-        format!("{}?module=account&action=txlist&address={}&startblock={}&endblock={}&sort=asc&apikey=YourApiKeyToken",
+        use crate::types::ETHERSCAN_URL;
+        info!("{:x}", $addr)
+        &format!("{}?module=account&action=txlist&address=0x{:x}&startblock={}&endblock={}&sort=asc",
                 ETHERSCAN_URL,
                 $addr,
                 $from,
                 $to
-        );
+        )
     });
     ($addr:expr, $from:expr, $to:expr, $sort:expr) => ({
-        format!("{}?module=account&action=txlist&address={}&startblock={}&endblock={}&sort={}&apikey=YourApiKeyToken",
+        use crate::types::ETHERSCAN_URL;
+        let addr = String::from(serde_json::to_string(&$addr)?);
+        info!("ADDR: {}", addr);
+        &format!("{}?module=account&action=txlist&address=0x{:x}&startblock={}&endblock={}&sort={}",
                 ETHERSCAN_URL,
                 $addr,
                 $from,
                 $to,
                 $sort
-        );
+        )
     });
 }
-
-
-

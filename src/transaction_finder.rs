@@ -1,21 +1,20 @@
 use log::*;
-use failure::*;
-use futures::stream::Stream;
-use futures::future::{self, Future};
-use futures::{Poll, Async};
-use futures::sync::mpsc::{UnboundedSender, UnboundedReceiver, unbounded};
-use tokio_core::reactor::Handle;
-use ethereum_types::Address;
-use web3::{transports, BatchTransport};
-use web3::types::{BlockNumber, BlockId, Transaction, Block};
-use web3::helpers::CallResult;
-use std::sync::{Arc, Mutex};
-use std::collections::VecDeque;
-use std::thread;
-use super::utils::latest_block as latest;
-use super::err::TransactionFinderError;
-use super::client::Client;
-use super::types::MAX_BATCH_SIZE;
+use futures::{
+    Poll,
+    stream::Stream,
+    future::Future,
+    sync::mpsc::{self, UnboundedSender, UnboundedReceiver},
+};
+use web3::{
+    BatchTransport,
+    types::{Address, BlockNumber,BlockId, Transaction, Block},
+};
+use super::{
+    utils::latest_block as latest,
+    err::TransactionFinderError,
+    client::Client,
+    types::MAX_BATCH_SIZE,
+};
 
 // -- going to need `__getBlockByNumber
 // -- going to need `getLogs`
@@ -66,7 +65,7 @@ impl TransactionFinder {
         }
 
         let addr = self.address.clone();
-        let (tx, rx): (UnboundedSender<Transaction>, UnboundedReceiver<Transaction>) = unbounded();
+        let (tx, rx): (UnboundedSender<Transaction>, UnboundedReceiver<Transaction>) = mpsc::unbounded();
 
         for i in from..=to {
             client.web3_batch.eth().block_with_txs(BlockId::Number(BlockNumber::Number(i)));

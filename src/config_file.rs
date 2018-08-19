@@ -1,19 +1,15 @@
 // macros
 use serde_derive::*;
-use log::{log, info, error, debug};
+use log::*;
 // structs
 use std::fs;
 use std::io::Write;
 use std::env;
 use std::path::PathBuf;
-use std::collections::HashMap;
-use regex::Regex;
-use failure::Error;
-use config::{self, File, Config};
+use config::{File, Config};
 use reduce::Reduce;
 use clap::{arg_enum, _clap_count_exprs};
 use super::err::ConfigurationError;
-use super::types::INFURA_URL;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ConfigFile {

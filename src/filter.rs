@@ -1,16 +1,20 @@
 use log::*;
-use web3::types::{Trace,  H160, H256, Index, BlockNumber, TraceFilterBuilder};
-use web3::{Transport, BatchTransport};
+use web3::{
+    BatchTransport,
+    types::{Trace, H160, H256, Index, BlockNumber, TraceFilterBuilder},
+};
 use futures::future::Future;
-use super::utils;
-use super::client::Client;
+use super::{
+    utils,
+    client::Client,
+};
 
 // an attempted implementation of
 // https://medium.com/@tjayrush/defeating-the-ethereum-ddos-attacks-d3d773a9a063
 pub struct TraceFilterCall;
 impl TraceFilterCall {
 
-    pub fn isSpam<T>(client: &mut Client<T>,hash: H256, block: u64) -> bool
+    pub fn is_spam<T>(client: &mut Client<T>,hash: H256, block: u64) -> bool
     where
         T: BatchTransport
     {
@@ -26,7 +30,7 @@ impl TraceFilterCall {
     where
         T: BatchTransport
     {
-        if (last == first) {
+        if last == first {
             return first;
         }
 
@@ -47,7 +51,8 @@ impl TraceFilterCall {
         T: BatchTransport
     {
         let fut = client.web3.trace().get(hash, vec![index]);
-        Ok(client.run(fut)?.block_number >=0)
+        let trace = client.run(fut)?;
+        Ok(trace.block_number >= 0)
     }
 }
 
