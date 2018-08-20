@@ -2,7 +2,7 @@
 mod cache;
 use log::*;
 use evmap::{/*unsafe!*/ ShallowCopy /*unsafe!*/, ReadHandle};
-use serde_derive::{Deserialize};
+use serde_derive::Deserialize;
 use failure::Error;
 use futures::{
     future::Future,
@@ -12,16 +12,13 @@ use futures::{
 };
 use web3::{
     BatchTransport,
-    types::{Trace, Transaction, TransactionId, BlockNumber, TransactionReceipt, Log, H256, H160, FilterBuilder},
+    types::{Trace, Transaction, TransactionId, BlockNumber, TransactionReceipt, H160, FilterBuilder},
 };
-use std::{
-    collections::HashMap,
-    path::PathBuf,
-};
+use std::path::PathBuf;
 use super::{
     utils,
-    etherscan::{EtherScan, EtherScanTx, SortType},
-    client::{self, Client},
+    etherscan::{EtherScan, SortType},
+    client::{Client},
     err::TransactionValidatorError,
 };
 
@@ -107,10 +104,10 @@ impl TransactionValidator  {
     where
         T: BatchTransport + Send + Sync + 'static,
     {
-        let mut cache = TransactionCache::new();
+        let mut cache = Cache::new();
 
         info!("gathering logs");
-        let log_filter = FilterBuilder::default() // top-level logs not needed
+        let log_filter = FilterBuilder::default() // top-level logs not needed. Included in TransactionReceipt
             .address(vec![to_addr.clone()])
             .to_block(to_block.clone())
             .from_block(BlockNumber::Earliest)
@@ -118,7 +115,6 @@ impl TransactionValidator  {
         let fut = client.web3.eth().logs(log_filter);
         let logs = try_web3!(client.run(fut));
         cache.extend(logs);
-
 
         info!("gathering transactions from EtherScan");
         let eth_scan = EtherScan::new();
@@ -135,34 +131,65 @@ impl TransactionValidator  {
             traces.trace().transaction(tx_hash);
         }
 
-        let (sendr, recver) = mpsc::unbounded();
-        let txs = txs.transport().submit_batch().then(|txs| {
-            let sendr = sendr.clone();
-            let txs = try_web3!(txs);
-            txs.into_iter().for_each(|tx| sendr.unbounded_send(TxType::Transaction(try_web3!(tx))));
+        let (sender, receiver) = mpsc::unbounded();
+        let txs = txs.transport().submit_batch()
+            .from_err::<TransactionValidatorError>()
+            .and_then(|txs| {
+                let res = txs.into_iter()
+                    .map(|tx| serde_json::from_value::<Transaction>(try_web3!(tx)).map_err(|e| e.into()))
+                    .collect::<Result<Vec<Transaction>, TransactionValidatorError>>();
+                futures::future::result(res)
+            }).and_then(|txs| {
+                let sender = sender.clone();
+                txs.into_iter()
+                    .try_for_each(|tx| sender.unbounded_send(TxType::Transaction(tx)));
+                Ok(())
+            }).map_err(|e| {
+                error!("{}", verb_msg!("{}", e));
+            });
+        let receipts = receipts.transport().submit_batch()
+            .from_err::<TransactionValidatorError>()
+            .and_then(|receipts| {
+                let res = receipts.into_iter()
+                    .map(|rec| serde_json::from_value::<TransactionReceipt>(try_web3!(rec)).map_err(|e| e.into()))
+                    .collect::<Result<Vec<TransactionReceipt>, TransactionValidatorError>>();
+                futures::future::result(res)
+            }).and_then(|recs| {
+                let sender = sender.clone();
+                recs.into_iter()
+                    .try_for_each(|rec| sender.unbounded_send(TxType::Receipt(rec)));
+                Ok(())
+            }).map_err(|e| {
+                error!("{}", verb_msg!("{}", e));
+            });
+
+        let traces = traces.transport().submit_batch()
+            .from_err::<TransactionValidatorError>()
+            .and_then(|traces| {
+                let res = traces.into_iter()
+                    .map(|trace| serde_json::from_value::<Vec<Trace>>(try_web3!(trace)).map_err(|e| e.into()))
+                    .collect::<Result<Vec<Vec<Trace>>, TransactionValidatorError>>();
+                futures::future::result(res)
+            }).and_then(|traces| {
+                let sender = sender.clone();
+                traces
+                    .into_iter()
+                    .try_for_each(|trace| sender.unbounded_send(TxType::Traces(trace)));
+                Ok(())
+            }).map_err(|e| { // handle error
+                error!("{}", verb_msg!("{}", e));
+            });
+
+        client.handle().spawn(txs);
+        client.handle().spawn(receipts);
+        client.handle().spawn(traces);
+
+        let fut = receiver.for_each(|tx_type| {
+            cache.insert(tx_type);
             Ok(())
         });
-        let receipts = receipts.transport().submit_batch().then(|receipts| {
-            let sendr = sendr.clone();
-            let txs = try_web3!(txs);
-            receipts.into_iter().for_each(|rec| sendr.unbounded_send(TxType::Receipt(try_web3!(rec))));
-        });
-        let traces = traces.transport().submit_batch().then(|traces| {
-            let sendr = sendr.clone();
-            let txs = try_web3!(txs);
-            traces.for_each(|trace| sendr.unbounded_send(TxType::Traces(try_web3!(trace))));
-        });
 
-        client.spawn(txs);
-        client.spawn(receipts);
-        client.spawn(traces);
-
-        let fut = rx.for_each(|tx_type| {
-            tx_type.insert(cache);
-            Ok(())
-        });
-
-        info!("Submitting last batches!");
+        info!("Submitting last batch requests of Transactions, Receipts, and Traces!");
         client.run(fut);
         Ok(cache)
     }
@@ -175,7 +202,7 @@ impl TransactionValidator  {
             T: BatchTransport + Send + Sync,
             <T as web3::BatchTransport>::Batch: Send
     {
-        let (tx, rx): (UnboundedSender<InvalidEntry>, UnboundedReceiver<InvalidEntry>) = unbounded();
+        let (tx, rx): (UnboundedSender<InvalidEntry>, UnboundedReceiver<InvalidEntry>) = mpsc::unbounded();
         /*
         self.read_handle.for_each(|block| {
             block.par_iter().for_each(|tx| { // parallel iteration
@@ -274,7 +301,7 @@ mod tests {
         let conf = Configuration::new().expect("Could not create configuration");
         let mut client = Client::<web3::transports::http::Http>::new_http(&conf).expect("Could not build client");
         let validator = tx_validator(&mut client);
-        info!("Validator tx: {:#?}", validator.transactions);
+        info!("Validator tx: {:#?}", validator.cache);
     }
 /*
     #[test]

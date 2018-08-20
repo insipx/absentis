@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use web3::BatchTransport;
 use super::err::ConfigurationError;
 use super::client::Client;
-use super::config_file::{ConfigFile, EthNode, Transport};
+use super::config_file::{ConfigFile, Transport};
 
 pub struct Configuration {
     file: Option<ConfigFile>,

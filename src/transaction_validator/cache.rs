@@ -1,5 +1,4 @@
 //! A transaction cache for transaction_validator
-use failure::Fail;
 use std::collections::HashMap;
 use web3::types::{Transaction, TransactionReceipt, Trace, Log, H256};
 
@@ -35,13 +34,14 @@ impl TransactionCache {
         TransactionCache(HashMap::new())
     }
 
+    /// Insert a TxType into Cache
     pub fn insert(&mut self, tx: impl CacheAction) {
-        tx.insert(&mut self.0);
+        tx.insert(&mut self.0);  // handle errors with .exists() to make sure we're not overwriting anything
     }
 
     /// extend cache with a vector of CacheAction Types
-    fn extend<T>(&mut self, val: Vec<impl CacheAction>) {
-        self.0.extend(val.into_iter().map(|x| (x.hash().clone(), x.empty() )))
+    pub fn extend(&mut self, val: Vec<impl CacheAction>) {
+        self.0.extend(val.into_iter().map(|x| (x.hash().clone(), x.empty())))
     }
 }
 
@@ -59,7 +59,7 @@ impl CacheAction for TxType {
     fn exists(&self, cache: &HashMap<H256, Tx>) -> bool {
         match self {
             TxType::Transaction(tx) => tx.exists(cache),
-            TxType::Receipt(rec) => rec.eixsts(cache),
+            TxType::Receipt(rec) => rec.exists(cache),
             TxType::Traces(tr) => tr.exists(cache),
             TxType::Logs(logs) => logs.exists(cache),
         }
@@ -85,11 +85,9 @@ impl CacheAction for TxType {
 }
 
 /// Common actions for web3 types in Cache
-trait CacheAction {
+pub trait CacheAction {
     /// gets transaction hash of item in cache
-    fn hash(&self) -> &H256 {
-        self.transaction_hash.expect("Transaction hash cannot be empty");
-    }
+    fn hash(&self) -> &H256;
     /// inserts an item into cache
     fn insert(self, cache: &mut HashMap<H256, Tx>);
     /// checks cache if this type exists within it
@@ -126,7 +124,7 @@ impl CacheAction for Transaction {
 
 impl CacheAction for TransactionReceipt {
     fn hash(&self) -> &H256 {
-        self.transaction_hash
+        &self.transaction_hash
     }
 
     fn insert(self, cache: &mut HashMap<H256, Tx>) {
@@ -134,7 +132,7 @@ impl CacheAction for TransactionReceipt {
             let entry = cache.get_mut(&self.transaction_hash).expect("scope is conditional; qed");
             entry.receipt = Some(self);
         } else {
-            cache.insert(self.hash.clone(), self.empty());
+            cache.insert(self.hash().clone(), self.empty());
         }
     }
 
@@ -153,7 +151,7 @@ impl CacheAction for TransactionReceipt {
 
 impl CacheAction for Vec<Trace> {
     fn hash(&self) -> &H256 {
-        self.get(0)
+        &self.get(0)
             .expect(&verb_msg!("Cannot insert an empty vector!"))
             .transaction_hash
             .expect(&verb_msg!("TX hash cannot be `None`"))
@@ -171,7 +169,7 @@ impl CacheAction for Vec<Trace> {
         if self.len() <= 0 {
             false
         } else {
-            if cache.contains_key(self.get(0).expect("Scope is conditional; qed").transaction_hash) && cache.get(self.hash()).expect("scope is conditional; qed").traces.is_some() {
+            if cache.contains_key(self.hash()) && cache.get(self.hash()).expect("scope is conditional; qed").traces.is_some() {
                 true
             } else {
                 false
@@ -185,8 +183,12 @@ impl CacheAction for Vec<Trace> {
 }
 
 impl CacheAction for Log {
+    fn hash(&self) -> &H256 {
+        &self.transaction_hash.expect("Transaction hash cannot be empty")
+    }
+
     fn insert(self, cache: &mut HashMap<H256, Tx>) {
-        if cache.contains_key(&tx_hash) {
+        if cache.contains_key(self.hash()) {
             let entry = cache.get_mut(self.hash()).expect("scope is conditional; qed");
             entry.logs = Some(self);
         } else {

@@ -79,11 +79,13 @@ pub enum TransactionValidatorError {
     CouldNotFind(String),
     #[fail(display = "{}", _0)]
     Etherscan(super::etherscan::EtherScanError),
+    #[fail(display = "Web3 Error Occured {}", _0)]
+    Web3(String)
 }
 
 impl From<csv::Error> for TransactionValidatorError {
     fn from(err: csv::Error) -> TransactionValidatorError {
-        TransactionValidatorError::CSV(err)  
+        TransactionValidatorError::CSV(err)
     }
 }
 
@@ -96,5 +98,11 @@ impl From<serde_json::Error> for TransactionValidatorError {
 impl From<super::etherscan::EtherScanError> for TransactionValidatorError {
     fn from(err: super::etherscan::EtherScanError) -> TransactionValidatorError {
         TransactionValidatorError::Etherscan(err)
+    }
+}
+
+impl From<web3::error::Error> for TransactionValidatorError {
+    fn from(err: web3::error::Error) -> TransactionValidatorError {
+        TransactionValidatorError::Web3(format!("{}", err))
     }
 }

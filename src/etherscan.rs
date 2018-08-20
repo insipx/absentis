@@ -6,7 +6,6 @@ use futures::{
     future::Future,
     stream::Stream,
 };
-use super::types::ETHERSCAN_URL;
 use failure::Fail;
 use web3::types::{H160};
 
