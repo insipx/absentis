@@ -80,7 +80,7 @@ pub enum TransactionValidatorError {
     #[fail(display = "{}", _0)]
     Etherscan(super::etherscan::EtherScanError),
     #[fail(display = "Web3 Error Occured {}", _0)]
-    Web3(String)
+    Web3(String),
 }
 
 impl From<csv::Error> for TransactionValidatorError {

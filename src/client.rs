@@ -12,6 +12,7 @@ use super::{
 pub struct Client<T: Transport> where web3::transports::batch::Batch<T>: Transport {
     pub web3: web3::Web3<T>,
     pub web3_batch: web3::Web3<web3::transports::batch::Batch<T>>,
+    transport: T,
     ev_loop: tokio_core::reactor::Core,
 }
 
@@ -21,8 +22,8 @@ impl<T> Client<T> where T: BatchTransport + Clone {
         let ev_loop = tokio_core::reactor::Core::new()?;
         Ok(Client {
             web3: web3::Web3::new(transport.clone()),
-            web3_batch: web3::Web3::new(web3::transports::Batch::new(transport)),
-            ev_loop,
+            web3_batch: web3::Web3::new(web3::transports::Batch::new(transport.clone())),
+            transport, ev_loop,
         })
     }
 
@@ -50,7 +51,7 @@ impl<T> Client<T> where T: BatchTransport + Clone {
 
     /// returns a new web3_batch instance. useful for separating out types of requests
     pub fn batch(&self) -> web3::Web3<web3::transports::batch::Batch<T>> {
-        self.web3_batch.clone()
+        web3::Web3::new(web3::transports::Batch::new(self.transport.clone()))
     }
 
     pub fn new_ipc(conf: &Configuration) -> Result<Client<transports::ipc::Ipc>, Error> {
@@ -117,7 +118,8 @@ impl HttpBuilder {
 
         Ok(Client {
             web3: web3::Web3::new(http.clone()),
-            web3_batch: web3::Web3::new(web3::transports::batch::Batch::new(http)),
+            web3_batch: web3::Web3::new(web3::transports::batch::Batch::new(http.clone())),
+            transport: http,
             ev_loop,
         })
     }
@@ -158,7 +160,8 @@ impl IpcBuilder {
 
         Ok(Client {
             web3: web3::Web3::new(ipc.clone()),
-            web3_batch: web3::Web3::new(web3::transports::batch::Batch::new(ipc)),
+            web3_batch: web3::Web3::new(web3::transports::batch::Batch::new(ipc.clone())),
+            transport: ipc,
             ev_loop,
         })
     }

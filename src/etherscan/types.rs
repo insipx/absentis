@@ -40,6 +40,32 @@ pub struct EtherScanTx {
 }
 
 #[derive(Deserialize, Debug)]
+pub struct EtherScanInternalTx {
+    #[serde(rename = "blockNumber")]
+    pub block_number: String,
+    #[serde(rename = "timeStamp")]
+    pub time_stamp: String,
+    pub hash: H256, // we only care about this one
+    pub from: String,
+    pub to: String,
+    pub value: String,
+    #[serde(rename = "contractAddress")]
+    pub contract_address: String,
+    pub input: String,
+    #[serde(rename = "type")]
+    pub tx_type: String,
+    pub gas: String,
+    #[serde(rename = "gasUsed")]
+    pub gas_used: String,
+    #[serde(rename = "traceId")]
+    pub trace_id: String,
+    #[serde(rename="isError")]
+    pub is_error: String,
+    #[serde(rename = "errCode")]
+    pub err_code: String
+}
+
+#[derive(Deserialize, Debug)]
 pub struct EtherScanResponse<T: Debug> {
     #[serde(deserialize_with = "from_str")]
     status: i32,
@@ -79,6 +105,32 @@ macro_rules! eth_txlist {
                 $from,
                 $to,
                 $sort
+        )
+    });
+}
+
+#[macro_export]
+macro_rules! eth_int_txlist {
+    ($addr:expr, $from:expr, $to:expr) => ({
+        use crate::types::ETHERSCAN_URL;
+        info!("{:x}", $addr)
+            &format!("{}?module=account&action=txlistinternal&address=0x{:x}&startblock={}&endblock={}&sort=asc",
+                     ETHERSCAN_URL,
+                     $addr,
+                     $from,
+                     $to
+            )
+    });
+    ($addr:expr, $from:expr, $to:expr, $sort:expr) => ({
+        use crate::types::ETHERSCAN_URL;
+        let addr = String::from(serde_json::to_string(&$addr)?);
+        info!("ADDR: {}", addr);
+        &format!("{}?module=account&action=txlistinternal&address=0x{:x}&startblock={}&endblock={}&sort={}",
+                 ETHERSCAN_URL,
+                 $addr,
+                 $from,
+                 $to,
+                 $sort
         )
     });
 }

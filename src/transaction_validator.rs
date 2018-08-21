@@ -1,9 +1,12 @@
 //! Warning! Uses Etherscan
 mod cache;
+mod err;
+
 use log::*;
 use evmap::{/*unsafe!*/ ShallowCopy /*unsafe!*/, ReadHandle};
 use serde_derive::Deserialize;
 use failure::Error;
+use rayon::prelude::*;
 use futures::{
     future::Future,
     stream::Stream,
@@ -12,7 +15,7 @@ use futures::{
 };
 use web3::{
     BatchTransport,
-    types::{Trace, Transaction, TransactionId, BlockNumber, TransactionReceipt, H160, FilterBuilder},
+    types::{Trace, Transaction, TransactionId, BlockNumber, TransactionReceipt, H160, FilterBuilder, Bytes},
 };
 use std::path::PathBuf;
 use super::{
@@ -22,7 +25,7 @@ use super::{
     err::TransactionValidatorError,
 };
 
-use self::cache::{TxType, TransactionCache as Cache};
+use self::cache::{TxType, TransactionCache as Cache, CacheAction};
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct TxEntry  {
@@ -104,10 +107,10 @@ impl TransactionValidator  {
     where
         T: BatchTransport + Send + Sync + 'static,
     {
-        let mut cache = Cache::new();
+        let mut cache = Cache::new(to_addr, BlockNumber::Earliest, to_block);
 
         info!("gathering logs");
-        let log_filter = FilterBuilder::default() // top-level logs not needed. Included in TransactionReceipt
+        /*let log_filter = FilterBuilder::default() // top-level logs not needed. Included in TransactionReceipt
             .address(vec![to_addr.clone()])
             .to_block(to_block.clone())
             .from_block(BlockNumber::Earliest)
@@ -115,70 +118,24 @@ impl TransactionValidator  {
         let fut = client.web3.eth().logs(log_filter);
         let logs = try_web3!(client.run(fut));
         cache.extend(logs);
-
+        */
         info!("gathering transactions from EtherScan");
         let eth_scan = EtherScan::new();
         let to_block = utils::as_u64(client, to_block);
-        let mut transactions = eth_scan.get_tx_by_account(client.ev_loop(), to_addr, 0, to_block, SortType::Ascending)?;
+        let hashes = eth_scan.get_tx_by_account(client.ev_loop(), to_addr, 0, to_block, SortType::Ascending)?;
 
         let (txs, receipts, traces) = (client.batch(), client.batch(), client.batch());
 
-        for (idx, t) in transactions.iter_mut().enumerate() {
-            let tx_hash = t.hash;
-            info!("transaction: {:?}", t);
-            txs.eth().transaction(TransactionId::Hash(tx_hash));
-            receipts.eth().transaction_receipt(tx_hash);
-            traces.trace().transaction(tx_hash);
+        for hash in hashes.iter() {
+            txs.eth().transaction(TransactionId::Hash(*hash));
+            receipts.eth().transaction_receipt(*hash);
+            traces.trace().transaction(*hash);
         }
 
         let (sender, receiver) = mpsc::unbounded();
-        let txs = txs.transport().submit_batch()
-            .from_err::<TransactionValidatorError>()
-            .and_then(|txs| {
-                let res = txs.into_iter()
-                    .map(|tx| serde_json::from_value::<Transaction>(try_web3!(tx)).map_err(|e| e.into()))
-                    .collect::<Result<Vec<Transaction>, TransactionValidatorError>>();
-                futures::future::result(res)
-            }).and_then(|txs| {
-                let sender = sender.clone();
-                txs.into_iter()
-                    .try_for_each(|tx| sender.unbounded_send(TxType::Transaction(tx)));
-                Ok(())
-            }).map_err(|e| {
-                error!("{}", verb_msg!("{}", e));
-            });
-        let receipts = receipts.transport().submit_batch()
-            .from_err::<TransactionValidatorError>()
-            .and_then(|receipts| {
-                let res = receipts.into_iter()
-                    .map(|rec| serde_json::from_value::<TransactionReceipt>(try_web3!(rec)).map_err(|e| e.into()))
-                    .collect::<Result<Vec<TransactionReceipt>, TransactionValidatorError>>();
-                futures::future::result(res)
-            }).and_then(|recs| {
-                let sender = sender.clone();
-                recs.into_iter()
-                    .try_for_each(|rec| sender.unbounded_send(TxType::Receipt(rec)));
-                Ok(())
-            }).map_err(|e| {
-                error!("{}", verb_msg!("{}", e));
-            });
-
-        let traces = traces.transport().submit_batch()
-            .from_err::<TransactionValidatorError>()
-            .and_then(|traces| {
-                let res = traces.into_iter()
-                    .map(|trace| serde_json::from_value::<Vec<Trace>>(try_web3!(trace)).map_err(|e| e.into()))
-                    .collect::<Result<Vec<Vec<Trace>>, TransactionValidatorError>>();
-                futures::future::result(res)
-            }).and_then(|traces| {
-                let sender = sender.clone();
-                traces
-                    .into_iter()
-                    .try_for_each(|trace| sender.unbounded_send(TxType::Traces(trace)));
-                Ok(())
-            }).map_err(|e| { // handle error
-                error!("{}", verb_msg!("{}", e));
-            });
+        let txs = cache_get_task::<Transaction, _>(txs.transport(), sender.clone());
+        let receipts = cache_get_task::<TransactionReceipt, _>(receipts.transport(), sender.clone());
+        let traces = cache_get_task::<Vec<Trace>, _>(traces.transport(), sender);
 
         client.handle().spawn(txs);
         client.handle().spawn(receipts);
@@ -189,8 +146,9 @@ impl TransactionValidator  {
             Ok(())
         });
 
-        info!("Submitting last batch requests of Transactions, Receipts, and Traces!");
-        client.run(fut);
+        info!("Submitting batch requests of Transactions, Receipts, and Traces");
+        client.run(fut).unwrap();
+        info!("Finished building local cache");
         Ok(cache)
     }
 
@@ -215,45 +173,70 @@ impl TransactionValidator  {
     }
 
     /// find transactions that were incorrectly included in the CSV
-    fn find_misplaced<T>(&self, client: &Client<T>, tx: UnboundedSender<InvalidEntry>) -> Result<(), Error>
-        where
-            T: BatchTransport + Send + Sync,
-            <T as web3::BatchTransport>::Batch: Send
+    fn find_misplaced<T>(&self, tx: &UnboundedSender<InvalidEntry>) -> Result<(), Error>
     {
-        //
-        // try to find each transaction
+        self.read_handle.for_each(|k, _| {
+            // do nothing lol
+        });
         Ok(())
     }
 
     /// creates a new filter from genesis to specified block.
-    fn log_validator<T>(&self, client: &Client<T>, tx: UnboundedSender<InvalidEntry>) -> Result<(), Error>
-        where
-            T: BatchTransport + Send + Sync,
-            <T as web3::BatchTransport>::Batch: Send
+    fn log_validator(&self, log: Log, tx: &UnboundedSender<InvalidEntry>) -> Result<(), Error> {
+        unimplemented!();
+    }
+
+    fn transaction_validator(&self, transaction: Transaction, tx: &UnboundedSender<InvalidEntry>) -> Result<(), Error>
     {
         unimplemented!();
-        Ok(())
     }
+
     // log_N_generator
-    fn receipt_validator<T>(&self, client: &Client<T>, tx: UnboundedSender<InvalidEntry>) -> Result<(), Error>
-        where
-            T: BatchTransport + Send + Sync,
-            <T as web3::BatchTransport>::Batch: Send
-
-    {
+    /// finds addresses in transaction receipt
+    fn receipt_validator(&self, receipt: TransactionReceipt, tx: &UnboundedSender<InvalidEntry>) -> Result<(), Error> {
         unimplemented!();
-        Ok(())
     }
 
-    fn trace_validator<T>(&self, client: &Client<T>, tx: UnboundedSender<InvalidEntry>) -> Result<(), Error>
-        where
-            T: BatchTransport + Send + Sync,
-            <T as web3::BatchTransport>::Batch: Send
-
-    {
+    /// returns true if an addr is contained within a vector of traces
+    fn trace_validator<T>(&self, traces: Vec<Trace>, tx: &UnboundedSender<InvalidEntry>) -> Result<(), Error> {
         unimplemented!();
-        Ok(())
     }
+
+    /// returns true if an arbitrary addr is contained within a series of bytes
+    fn scan_bytes(&self, bytes: Vec<u8>, addr: H160) -> bool {
+        bytes.windows(addr.len()).position(|window| &(*addr) == window).is_some()
+    }
+}
+
+fn cache_get_task<A, T>(batch: &web3::transports::Batch<T>, sender: UnboundedSender<TxType>) -> impl Future<Item=(), Error=()>
+where
+    A: CacheAction + serde::de::DeserializeOwned,
+    T: BatchTransport,
+    TxType: std::convert::From<A>,
+{
+    batch.submit_batch()
+        .from_err::<TransactionValidatorError>()
+        .and_then(|vals| {
+            let res = vals.into_iter()
+                .map(|val| {
+                    serde_json::from_value(try_web3!(val)).map_err(|e| e.into())
+                })
+                .collect::<Result<Vec<A>, TransactionValidatorError>>();
+            futures::future::result(res)
+        }).and_then(move |vals| {
+            vals
+                .into_iter()
+                .try_for_each(|val| sender.unbounded_send(TxType::from(val)))
+                .map_err(|e| {
+                    error!("{}", verb_msg!("{}", e));
+                });
+            drop(sender);
+            Ok(())
+        }).map_err(|e| {
+            error!("{}", verb_msg!("{}", e));
+            error!("{:?}", e);
+            panic!("Shutting down");
+        })
 }
 
 pub struct Scan {
@@ -279,7 +262,7 @@ mod tests {
     fn tx_validator(client: &mut Client<web3::transports::http::Http>) -> TransactionValidator {
         match TransactionValidator::new(client,
                                        PathBuf::from("/home/insi/Projects/absentis/txs.csv"),
-                                       Some(BlockNumber::Number(2_300_000)),
+                                       Some(BlockNumber::Number(6_000_000)),
                                        Address::from("0xfb6916095ca1df60bb79ce92ce3ea74c37c5d359"))
         {
             Err(e) => {

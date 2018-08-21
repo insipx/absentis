@@ -36,3 +36,7 @@ evmap = "4.0.0"
 [dependencies.ethereum-types]
 version = "0.3.2"
 features = ["serialize"]
+
+[dependencies.rustbreak]
+version = "2.0.0-rc3"
+features = ["bin_enc"]

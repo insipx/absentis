@@ -1,13 +1,13 @@
 use log::*;
 #[macro_use] mod types;
-pub use self::types::{EtherScanTx, EtherScanResponse};
+pub use self::types::{EtherScanTx, EtherScanInternalTx, EtherScanResponse};
 use hyper::client::HttpConnector;
 use futures::{
     future::Future,
     stream::Stream,
 };
 use failure::Fail;
-use web3::types::{H160};
+use web3::types::{H160, H256};
 
 pub struct EtherScan {
     client: hyper::client::Client<HttpConnector, hyper::Body>,
@@ -19,8 +19,8 @@ pub enum SortType {
     None
 }
 
-impl From<SortType> for String {
-    fn from(sort_type: SortType) -> String {
+impl From<&SortType> for String {
+    fn from(sort_type: &SortType) -> String {
         match sort_type {
             SortType::Ascending => "asc".to_string(),
             SortType::Descending => "des".to_string(),
@@ -29,6 +29,7 @@ impl From<SortType> for String {
     }
 }
 
+
 impl EtherScan {
     pub fn new() -> Self {
         EtherScan {
@@ -36,18 +37,22 @@ impl EtherScan {
         }
     }
 
+    /// returns all hashes of transactions (external  + internal)
     pub fn get_tx_by_account(&self, ev_loop: &mut tokio_core::reactor::Core,
                              addr: H160,
                              from: u64,
                              to: u64,
                              sort: SortType)
-                             -> Result<Vec<EtherScanTx>, EtherScanError>
+                             -> Result<Vec<H256>, EtherScanError>
     {
-        let req = eth_txlist!(addr, from.to_string(), to.to_string(), String::from(sort));
-        info!("URL: {}", req);
-        let res =  ev_loop.run(self.do_get(req.parse().expect("URI should not be invalid")))?;
-        let response = serde_json::from_slice::<EtherScanResponse<Vec<EtherScanTx>>>(&res.to_vec())?;
-        Ok(response.result)
+        let req_normtx = eth_txlist!(addr, from.to_string(), to.to_string(), String::from(&sort));
+        let req_inttx = eth_int_txlist!(addr, from.to_string(), to.to_string(), String::from(&sort));
+        info!("URL: {}::::{}", req_normtx, req_inttx);
+        let normal =  ev_loop.run(self.do_get(req_normtx.parse().expect("URI should not be invalid; qed")))?;
+        let internal = ev_loop.run(self.do_get(req_inttx.parse().expect("URI should not be invalid; qed")))?;
+        let norm_response = serde_json::from_slice::<EtherScanResponse<Vec<EtherScanTx>>>(&normal.to_vec())?.result;
+        let int_response = serde_json::from_slice::<EtherScanResponse<Vec<EtherScanInternalTx>>>(&internal.to_vec())?.result;
+        Ok(norm_response.iter().map(|x| x.hash).chain(int_response.iter().map(|x| x.hash)).collect::<Vec<H256>>())
     }
 
     fn do_get(&self, uri: hyper::Uri) -> impl Future<Item = bytes::Bytes, Error = EtherScanError> {
