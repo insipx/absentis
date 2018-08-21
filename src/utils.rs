@@ -10,12 +10,12 @@ macro_rules! count_tts {
     ($($tts:tt)*) => {0usize $(+ replace_expr!($tts 1usize))*};
 }
 */
-macro_rules! green {
+/*macro_rules! green {
     ($($strs: expr),+) => ({
         use colored::Colorize;
         $($strs.bright_green()),+
     });
-}
+}*/
 #[macro_export]
 macro_rules! format_num {
     ($num:expr) => ({
@@ -116,4 +116,3 @@ where
         web3::types::BlockNumber::Number(num)=> num,
     }
 }
-

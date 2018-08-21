@@ -6,9 +6,13 @@ use std::{
     path::PathBuf,
 };
 use rayon::prelude::*;
-use web3::types::{Transaction, TransactionReceipt, Trace, Log, H160, H256, U256, BlockNumber};
-use rustbreak::{FileDatabase, deser::Bincode};
-use super::err::CacheError;
+use web3::types::{Transaction, TransactionReceipt, Trace, Log, H160, H256, U256, BlockNumber, Block as Web3Block};
+
+use super::{
+    err::CacheError,
+    // intermediary_types::{self as db_types,TxInt, LogInt},
+    simpledb::SimpleDB,
+};
 
 /// a simple cache for storing transactions
 #[derive(Debug)]
@@ -17,24 +21,33 @@ pub struct TransactionCache {
     cache: HashMap<H256, Tx>,
     /// name of an object in a database in OS temporary directory.
     name: String, // -- name convention = ADDRESS_FROMBLOCK_TOBLOCK
-    db: FileDatabase<HashMap<H256, Tx>, Bincode>,
+    db: SimpleDB<HashMap<H256, Tx>>,
+    populated: bool,
 }
 
 /// A transaction and all associated information (Transaction, Receipt, Traces, Extra Logs)
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct Tx {
-    transaction: Option<Transaction>,
-    receipt: Option<TransactionReceipt>,
-    traces: Option<Vec<Trace>>,
-    logs: Option<Log>,
+    pub transaction: Option<Transaction>,
+    pub receipt: Option<TransactionReceipt>,
+    pub traces: Option<Vec<Trace>>,
+    pub logs: Option<Log>,
+    pub block: Option<Block>
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub enum TxType {
     Transaction(Transaction),
     Receipt(TransactionReceipt),
     Traces(Vec<Trace>),
     Logs(Log),
+    Block(Block)
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct Block {
+    pub tx_hash: H256,
+    pub block: Web3Block<H256>
 }
 
 impl std::fmt::Display for TxType {
@@ -44,13 +57,8 @@ impl std::fmt::Display for TxType {
             TxType::Receipt(_) => write!(f, "Receipt"),
             TxType::Traces(_) => write!(f, "Traces"),
             TxType::Logs(_) => write!(f, "Logs"),
+            TxType::Block(_) => write!(f, "Block"),
         }
-    }
-}
-
-impl Tx {
-    pub fn new(transaction: Option<Transaction>, receipt: Option<TransactionReceipt>, traces: Option<Vec<Trace>>, logs: Option<Log>) -> Self {
-        Tx { transaction, receipt, traces, logs }
     }
 }
 
@@ -68,73 +76,105 @@ impl Displayable for BlockNumber {
     }
 }
 
-
 // TODO: Make this a generic cache for H256 hashes #p3
+// TODO: support drawing from multiple db files
+//     - ie if an address is included multiple times like:
+//     - {ADDR}_0_1000000_2000000 , {ADDR}_2000000_3000000
+//     - and the user asks for transactions from 0 - 3000000, use both files instead of creating a new one
+//     - or include a function to 'merge' consecutive files into {ADDR}_0_3000000
+// doesn't do miner
 impl TransactionCache {
+    /// create a new Cache
     pub fn new(addr: H160, from_block: BlockNumber, to_block: BlockNumber) -> Result<Self, CacheError> {
-        let name = format!("0x{:x}_{}_{}", addr, from_block.display(), to_block.display());
-        let cache; let database;
-        if let Some(db) = Self::try_local(name) {
-            database = db;
-            cache = db.load(true);
-        } else {
-            database = FileDatabase::from_file(Self::default_path()?);
-            cache = HashMap::new();
-        }
-        TransactionCache {
-            cache: HashMap::new(),
-            name,
-            db:
-        }
+        let name = format!("0x{:x}_{}_{}.bin", addr, from_block.display(), to_block.display());
+        info!("FILE: {:?}", Self::try_local(&name)?);
+        let db = Self::try_local(&name)?;
+        let cache = db.get()?;
+        info!("cache.len(): {}", cache.len());
+        Ok(TransactionCache {
+            populated: cache.len() > 0,
+            cache, name, db,
+        })
     }
 
     /// Insert a TxType into Cache
+    /// handle errors with .exists() to make sure we're not overwriting anything
+    /// it is the job of the caller of insert() to make sure that no objects passed to insert have already been inserted for a tx hash
+    /// Normally, this means that no TXhashes should be duplicates when getting information from the node
     pub fn insert(&mut self, tx: impl CacheAction) {
         if tx.exists(&self.cache) {
             error!("Transaction already exists in cache. Aborting...");
             std::process::exit(1);
         } else {
-            tx.insert(&mut self.cache);  // handle errors with .exists() to make sure we're not overwriting anything
+            tx.insert(&mut self.cache);
         }
     }
 
     /// extend cache with a vector of CacheAction Types
-    pub fn extend(&mut self, val: Vec<impl CacheAction>) {
+    crate fn extend(&mut self, val: Vec<impl CacheAction>) {
         self.cache.extend(val.into_iter().map(|x| (x.hash().clone(), x.empty())))
     }
 
-    pub fn tx_by_blocknum(&self, block_num: u64) -> Option<H256> {
+    /// get a transaction hash from cache by block number
+    crate fn txhash_by_blocknum(&self, block_num: u64) -> Option<H256> {
         let block_num = U256::from(block_num);
         self.cache.par_iter()
-            .find_any(|(k, v)| v.transaction.unwrap().block_number.expect("Block number will never be pending; qed") == block_num)
+            .find_any(|(_, v)| v.transaction.as_ref().unwrap().block_number.expect("Block number will never be pending; qed") == block_num)
             .map(|(k, _)| k.clone())
-            // v.transaction.block_number.expect("Block number will never be pending; qed")
     }
 
-    /// Save all transactions to a temporary database that lives in /tmp
-    pub fn save(&self) {
-
+    crate fn get(&self, tx_hash: &H256) -> Option<&Tx> {
+        self.cache.get(tx_hash)
     }
-    ///Try to find a local copy of database
-    pub fn try_local(name: String) -> Option<HashMap<H256, Tx>> {
-        if self.exists() {
-            FileDatabase::<HashMap<H256, Tx>, Bincode>::from_file(
-                Self::default_path(name).unwrap().as_path(), HashMap::new()) // TODO unwrap
+
+    crate fn tx_by_blocknum(&self, block_num: u64) -> Option<&Tx> {
+        let tx_hash = self.txhash_by_blocknum(block_num)?;
+        self.get(&tx_hash)
+    }
+
+    // clones cache
+    /// Save all transactions to a temporary database that lives in system cache directory by cloning
+    crate fn save(&mut self) -> Result<(), CacheError> {
+        Ok(self.db.save(self.cache.clone())?)
+    }
+
+    /// check if cache contains transactions
+    /// so far, this simply checks if the length of the underlying hashmap is > 0
+    crate fn is_populated(&self) -> bool {
+        self.populated
+    }
+
+    fn try_local(name: &str) -> Result<SimpleDB<HashMap<H256, Tx>>, CacheError> {
+        if Self::db_exists(name)? {
+            Ok(SimpleDB::<HashMap<H256, Tx>>::new(Self::db_path(name)?)?)
         } else {
-            None
+            if !Self::dir_exists()? {
+                std::fs::create_dir(Self::dir_path()?)?;
+            }
+            Ok(SimpleDB::<HashMap<H256, Tx>>::new(Self::db_path(name)?)?)
         }
     }
 
-    fn default_path(name: String) -> Result<PathBuf, CacheError> {
-        dirs::cache_dir().and_then(|mut d| {
-            d.push("absentis");
-            d.push(name);
-        }).ok_or(CacheError::NotFound("Operating System Specific Cache Directory".to_string()))?;
+    fn db_path(name: &str) -> Result<PathBuf, CacheError> {
+        let mut dir = Self::dir_path()?;
+        dir.push(name);
+        Ok(dir)
     }
 
-    fn exists(name: String) -> Result<bool, CacheError> {
-        let path = Self::default_path(name)?;
-        path.as_path().exists()
+    fn db_exists(name: &str) -> Result<bool, CacheError> {
+        let path = Self::db_path(name)?;
+        Ok(path.as_path().exists())
+    }
+
+    fn dir_path() -> Result<PathBuf, CacheError> {
+        dirs::cache_dir().and_then(|mut d | {
+            d.push("absentis");
+            Some(d)
+        }).ok_or(CacheError::NotFound("Operating system specific cache directory".to_string()))
+    }
+
+    fn dir_exists() -> Result<bool, CacheError> {
+        Ok(Self::dir_path()?.is_dir())
     }
 }
 
@@ -146,6 +186,7 @@ impl CacheAction for TxType {
             TxType::Receipt(rec) => rec.insert(cache),
             TxType::Traces(tr) => tr.insert(cache),
             TxType::Logs(logs) => logs.insert(cache),
+            TxType::Block(blk) => blk.insert(cache),
         }
     }
 
@@ -155,6 +196,7 @@ impl CacheAction for TxType {
             TxType::Receipt(rec) => rec.exists(cache),
             TxType::Traces(tr) => tr.exists(cache),
             TxType::Logs(logs) => logs.exists(cache),
+            TxType::Block(blk) => blk.exists(cache),
         }
     }
 
@@ -164,6 +206,7 @@ impl CacheAction for TxType {
             TxType::Receipt(rec) => rec.hash(),
             TxType::Traces(tr) => tr.hash(),
             TxType::Logs(logs) => logs.hash(),
+            TxType::Block(blk) => blk.hash(),
         }
     }
 
@@ -173,6 +216,7 @@ impl CacheAction for TxType {
             TxType::Receipt(rec) => rec.empty(),
             TxType::Traces(tr) => tr.empty(),
             TxType::Logs(logs) => logs.empty(),
+            TxType::Block(blk) => blk.empty()
         }
     }
 }
@@ -189,13 +233,34 @@ pub trait CacheAction {
     fn empty(self) -> Tx;
 }
 
+impl CacheAction for Block {
+    fn hash(&self) -> &H256 {
+        &self.tx_hash
+    }
+    fn insert(self, cache: &mut HashMap<H256, Tx>) {
+        if cache.contains_key(self.hash()) {
+            let entry = cache.get_mut(self.hash()).expect("scope is conditional; qed");
+            entry.block = Some(self);
+        } else {
+            cache.insert(self.hash().clone(), self.empty());
+        }
+    }
+    fn exists(&self, cache: &HashMap<H256, Tx>) -> bool {
+        cache.contains_key(self.hash()) && cache.get(self.hash()).expect("scope is conditional; qed").block.is_some()
+    }
+
+    fn empty(self) -> Tx {
+        Tx { block: Some(self), transaction: None, logs: None, traces: None, receipt: None }
+    }
+}
+
 impl CacheAction for Transaction {
     fn hash(&self) -> &H256 {
         &self.hash
     }
     fn insert(self, cache: &mut HashMap<H256, Tx>) {
-        if cache.contains_key(&self.hash) {
-            let entry = cache.get_mut(&self.hash()).expect("scope is conditional; qed");
+        if cache.contains_key(self.hash()) {
+            let entry = cache.get_mut(self.hash()).expect("scope is conditional; qed");
             entry.transaction = Some(self);
         } else {
             cache.insert(self.hash().clone(), self.empty());
@@ -207,7 +272,7 @@ impl CacheAction for Transaction {
     }
 
     fn empty(self) -> Tx {
-        Tx { transaction: Some(self), logs: None, traces: None, receipt: None }
+        Tx { transaction: Some(self), logs: None, traces: None, receipt: None, block: None }
     }
 }
 
@@ -230,7 +295,7 @@ impl CacheAction for TransactionReceipt {
     }
 
     fn empty(self) -> Tx {
-        Tx {receipt: Some(self), logs: None, traces: None, transaction: None}
+        Tx {receipt: Some(self), logs: None, traces: None, transaction: None, block: None}
     }
 }
 
@@ -259,7 +324,7 @@ impl CacheAction for Vec<Trace> {
     }
 
     fn empty(self) -> Tx {
-        Tx {traces: Some(self), transaction: None, logs: None, receipt: None}
+        Tx {traces: Some(self), transaction: None, logs: None, receipt: None, block: None}
     }
 }
 
@@ -281,7 +346,12 @@ impl CacheAction for Log {
         cache.contains_key(self.hash()) && cache.get(self.hash()).expect("scope is conditional; qed").logs.is_some()
     }
     fn empty(self) -> Tx {
-        Tx { logs: Some(self), transaction: None, traces: None, receipt: None }
+        Tx { logs: Some(self), transaction: None, traces: None, receipt: None, block: None}
+    }
+}
+impl From<Block> for TxType {
+    fn from(blk: Block) -> TxType {
+        TxType::Block(blk)
     }
 }
 

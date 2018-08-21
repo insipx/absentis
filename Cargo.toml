@@ -32,11 +32,14 @@ pretty_env_logger = "0.2.4"
 csv = "1"
 rayon = "1.0.2"
 evmap = "4.0.0"
+itertools = "0.7.8"
+rustc-hex = "*"
+bincode = "*"
+ron = "0.4.0"
+rmp-serde = {git = "https://github.com/3Hren/msgpack-rust"}
+flate2 = "1.0"
 
 [dependencies.ethereum-types]
 version = "0.3.2"
 features = ["serialize"]
 
-[dependencies.rustbreak]
-version = "2.0.0-rc3"
-features = ["bin_enc"]

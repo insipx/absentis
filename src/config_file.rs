@@ -34,9 +34,9 @@ impl Default for Transport {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct EthNode {
-    #[serde(rename = "identifier")] 
+    #[serde(rename = "identifier")]
     ident: String,
-    #[serde(default)] 
+    #[serde(default)]
     transport: Transport,
     http: Option<Http>,
     ipc: Option<Ipc>
@@ -129,8 +129,8 @@ impl ConfigFile {
         info!("Default ConfigFile: {:?}", default_config);
 
         if config_path.is_none() { // if a custom configuration path has not been set, use default
-            config_path = Some(Self::default_path().and_then(|p| { 
-                if !p.as_path().exists() { // check to make sure the user config exists, 
+            config_path = Some(Self::default_path().and_then(|p| {
+                if !p.as_path().exists() { // check to make sure the user config exists,
                     let mut new_f = fs::File::create(p.as_path())?; // if not create an empty file so we can fill it with defaults
                     new_f.write_all(toml.as_bytes())?;
                 }
@@ -162,7 +162,7 @@ impl ConfigFile {
             Err(ConfigurationError::ConfigExists)
         }
     }
-    
+
     pub fn from_default() -> Result<ConfigFile, ConfigurationError> {
         let path = Self::default_path()?;
         fs::read_to_string(path.as_path())?.parse().map_err(|e| ConfigurationError::InvalidToml(e).into())
@@ -224,11 +224,11 @@ impl ConfigFile {
     // if transport is not specified, returns default from file
     // Transport is returned as a String. So, if the transport is IPC it will have to be converted
     // to a Path
-    pub fn transport<F>(&self, transport: Option<Transport>, fun: F) 
-        -> Result<(String, Transport), ConfigurationError> 
+    pub fn transport<F>(&self, transport: Option<Transport>, fun: F)
+        -> Result<(String, Transport), ConfigurationError>
         where
             F: Fn(&EthNode) -> bool
-    {   
+    {
         let nodes = is_set!(self.nodes.as_ref(), "Nodes");
         let node: Option<&EthNode> = nodes.iter().filter(|x| fun(x)).take(1).reduce(|e, _| e);
         let node = is_found!(node, "Eth node with identifier");
@@ -236,13 +236,13 @@ impl ConfigFile {
         if let Some(trans) = transport {
             match trans {
                 t @ Transport::Http => {
-                    let url = 
+                    let url =
                         is_set!(node.http.as_ref(), format!("Http for node {}", node.ident))
                         .url();
                     Ok((url, t))
                 },
                 t @ Transport::Ipc => {
-                    let url = 
+                    let url =
                         is_set!(node.ipc.as_ref(), format!("Ipc for node {}", node.ident))
                         .path_str();
                     Ok((url, t))
@@ -256,13 +256,13 @@ impl ConfigFile {
         } else {
             match &node.transport {
                 t @ Transport::Http => {
-                    let url = 
+                    let url =
                         is_set!(node.http.as_ref(), format!("Http for node {}", node.ident))
                         .url();
                     Ok((url, t.clone()))
                 },
                 t @ Transport::Ipc => {
-                    let url = 
+                    let url =
                         is_set!(node.ipc.as_ref(), format!("Ipc for node {}", node.ident))
                         .path_str();
                     Ok((url, t.clone()))
@@ -277,34 +277,34 @@ impl ConfigFile {
     }
 
     // returns the url from the first Eth node that matches the predicate function
-    pub fn url<F>(&self, fun: F) -> Result<String, ConfigurationError> 
-        where 
-            F: Fn(&EthNode) -> bool
-    {   
-        let nodes = is_set!(self.nodes.as_ref(), "Eth Nodes");
-        let node: Option<&EthNode> = nodes.iter().filter(|x| fun(x)).take(1).reduce(|e, _| e);
-        
-
-        // panic because predicate entered should never be incorrect
-        // that would be an internal bug
-        let node = node.expect("Predicate entered should never be incorrect; qed");
-        
-        let http: &Http = is_set!(node.http.as_ref(), format!("Http info for node {}", node));
-        Ok(http.url())
-    }
-    
-    // returns the ipc path from the first EthNode that matches the predicate function
-    pub fn ipc_path<F>(&self, fun: F) -> Result<PathBuf, ConfigurationError> 
-        where 
+    pub fn url<F>(&self, fun: F) -> Result<String, ConfigurationError>
+        where
             F: Fn(&EthNode) -> bool
     {
         let nodes = is_set!(self.nodes.as_ref(), "Eth Nodes");
         let node: Option<&EthNode> = nodes.iter().filter(|x| fun(x)).take(1).reduce(|e, _| e);
-            
+
+
         // panic because predicate entered should never be incorrect
         // that would be an internal bug
         let node = node.expect("Predicate entered should never be incorrect; qed");
-            
+
+        let http: &Http = is_set!(node.http.as_ref(), format!("Http info for node {}", node));
+        Ok(http.url())
+    }
+
+    // returns the ipc path from the first EthNode that matches the predicate function
+    pub fn ipc_path<F>(&self, fun: F) -> Result<PathBuf, ConfigurationError>
+        where
+            F: Fn(&EthNode) -> bool
+    {
+        let nodes = is_set!(self.nodes.as_ref(), "Eth Nodes");
+        let node: Option<&EthNode> = nodes.iter().filter(|x| fun(x)).take(1).reduce(|e, _| e);
+
+        // panic because predicate entered should never be incorrect
+        // that would be an internal bug
+        let node = node.expect("Predicate entered should never be incorrect; qed");
+
         let ipc: &Ipc = is_set!(node.ipc.as_ref(), format!("IPC info for node {}", node));
 
         Ok(ipc.path())
@@ -332,12 +332,12 @@ mod tests {
     #[test]
     fn it_should_create_new_default_config() {
         env_logger::try_init();
-        let conf = Configuration::new(None); 
+        let conf = Configuration::new(None);
 
         match conf {
             Ok(v) => {
                 info!("Default Config: {:?}", v);
-            }, 
+            },
             Err(e) => {
                 error!("Error: {}", e);
                 panic!("Failed due to error");
@@ -356,7 +356,7 @@ mod tests {
                 panic!("Failed due to error");
             }
         };
-        // TODO: change to make general test #p2 
+        // TODO: change to make general test #p2
         assert_eq!(path.to_str().unwrap(), "/home/insi/.config/absentis.toml");
     }
 

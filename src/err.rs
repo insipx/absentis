@@ -81,6 +81,14 @@ pub enum TransactionValidatorError {
     Etherscan(super::etherscan::EtherScanError),
     #[fail(display = "Web3 Error Occured {}", _0)]
     Web3(String),
+    #[fail(display = "Cache Error {}", _0)]
+    Cache(#[cause] crate::transaction_validator::err::CacheError),
+}
+
+impl From<crate::transaction_validator::err::CacheError> for TransactionValidatorError {
+    fn from(err: crate::transaction_validator::err::CacheError) -> TransactionValidatorError {
+        TransactionValidatorError::Cache(err)
+    }
 }
 
 impl From<csv::Error> for TransactionValidatorError {

@@ -41,8 +41,8 @@ pub struct EtherScanTx {
 
 #[derive(Deserialize, Debug)]
 pub struct EtherScanInternalTx {
-    #[serde(rename = "blockNumber")]
-    pub block_number: String,
+    #[serde(rename = "blockNumber", deserialize_with="from_str")]
+    pub block_number: u64,
     #[serde(rename = "timeStamp")]
     pub time_stamp: String,
     pub hash: H256, // we only care about this one

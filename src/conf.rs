@@ -35,8 +35,6 @@ impl Configuration {
 
     pub fn new() -> Result<Self, Error> {
         let opts = super::cli::parse()?;
-
-        let mut log_level: LogLevel;
         let (file, url, transport) = url_or_file(opts.file, opts.url, opts.transport)?;
         Ok(Configuration {
             file, url, transport,

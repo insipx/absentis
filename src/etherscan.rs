@@ -2,6 +2,7 @@ use log::*;
 #[macro_use] mod types;
 pub use self::types::{EtherScanTx, EtherScanInternalTx, EtherScanResponse};
 use hyper::client::HttpConnector;
+use itertools::Itertools;
 use futures::{
     future::Future,
     stream::Stream,
@@ -43,7 +44,7 @@ impl EtherScan {
                              from: u64,
                              to: u64,
                              sort: SortType)
-                             -> Result<Vec<H256>, EtherScanError>
+                             -> Result<Vec<(H256, u64)>, EtherScanError>
     {
         let req_normtx = eth_txlist!(addr, from.to_string(), to.to_string(), String::from(&sort));
         let req_inttx = eth_int_txlist!(addr, from.to_string(), to.to_string(), String::from(&sort));
@@ -52,7 +53,13 @@ impl EtherScan {
         let internal = ev_loop.run(self.do_get(req_inttx.parse().expect("URI should not be invalid; qed")))?;
         let norm_response = serde_json::from_slice::<EtherScanResponse<Vec<EtherScanTx>>>(&normal.to_vec())?.result;
         let int_response = serde_json::from_slice::<EtherScanResponse<Vec<EtherScanInternalTx>>>(&internal.to_vec())?.result;
-        Ok(norm_response.iter().map(|x| x.hash).chain(int_response.iter().map(|x| x.hash)).collect::<Vec<H256>>())
+        Ok(norm_response
+           .iter()
+           .map(|x| (x.hash, x.block_number))
+           .chain(int_response.iter().map(|x| (x.hash, x.block_number)))
+           .into_iter()
+           .unique_by(|x| x.0)
+           .collect::<Vec<(H256, u64)>>())
     }
 
     fn do_get(&self, uri: hyper::Uri) -> impl Future<Item = bytes::Bytes, Error = EtherScanError> {

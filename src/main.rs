@@ -1,3 +1,4 @@
+#![feature(try_from, transpose_result)]
 #[macro_use] mod utils;
 mod types;
 mod config_file;
@@ -10,8 +11,6 @@ mod client;
 mod transaction_validator;
 // mod filter;
 mod etherscan;
-
-use log::*;
 use failure::Error;
 
 // TODO SOMETIME BEFORE RELEASE
