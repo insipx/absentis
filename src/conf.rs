@@ -1,18 +1,38 @@
 //! parses configuration file and CLI options to return configured values
+mod config_file;
+mod cli;
+mod err;
+
 use log::{log, error, warn};
 use failure::Error;
 use std::path::PathBuf;
-use web3::BatchTransport;
-use super::err::ConfigurationError;
+use web3::{
+    transports::{
+        http::Http,
+        ipc::Ipc,
+    }
+};
+
+use self::err::ConfigurationError;
+use self::config_file::{ConfigFile, Transport as Transport};
 use super::client::Client;
-use super::config_file::{ConfigFile, Transport};
+
+pub use self::cli::Action;
 
 pub struct Configuration {
     file: Option<ConfigFile>,
     log_level: LogLevel,
     url: String,
     transport: Transport,
+    pub action: Action,
 }
+
+pub enum ChosenClient {
+    Http(Client<Http>),
+    Ipc(Client<Ipc>),
+    Infura,
+}
+
 #[derive(Debug)]
 pub enum LogLevel {
     None,   // Error by default
@@ -21,30 +41,25 @@ pub enum LogLevel {
     InsaneMode // trace/debug/info/warns
 }
 
-enum Node {
-    Infura,
-    EthNode
-}
-
-enum Action {
-    Validate,
-    // more actions
-}
-
 impl Configuration {
 
     pub fn new() -> Result<Self, Error> {
-        let opts = super::cli::parse()?;
+        let opts = self::cli::parse()?;
         let (file, url, transport) = url_or_file(opts.file, opts.url, opts.transport)?;
+        let action = opts.action;
         Ok(Configuration {
-            file, url, transport,
+            file, url, transport, action,
             log_level: opts.log_level,
         })
     }
 
     // get a configured client
-    pub fn get_client<T>(&self) -> Client<T> where T: BatchTransport {
-        unimplemented!();
+    pub fn get_client(&self) -> Result<ChosenClient, Error> {
+        match self.transport {
+            Transport::Http => Ok(ChosenClient::Http(Client::<Http>::new_http(self)?)),
+            Transport::Ipc => Ok(ChosenClient::Ipc(Client::<Ipc>::new_ipc(self)?)),
+            _ => unimplemented!(),
+        }
     }
 
     pub fn url(&self) -> String {
@@ -104,4 +119,3 @@ fn url_or_file(file: Option<ConfigFile>, url: Option<String>, transport: Option<
     }
 
 }
-

@@ -5,7 +5,6 @@ use std::{
     io::SeekFrom,
     fs::{self, File, OpenOptions},
     marker::PhantomData,
-    collections::HashMap,
     path::PathBuf,
     default::Default,
 };
@@ -15,19 +14,10 @@ use flate2::{
     read::DeflateDecoder,
 };
 use serde::{
-    Deserialize, Serialize,
+    Serialize,
     de::DeserializeOwned
 };
 use failure::Fail;
-use web3::types::{H256};
-/*use ron::{
-    ser::{Serializer, PrettyConfig},
-    de::Deserializer,
-};*/
-use rmp_serde::{
-    Serializer, Deserializer,
-    encode::Ext,
-};
 
 #[derive(Debug)]
 crate struct SimpleDB<D: DeserializeOwned + Serialize + Default> {
@@ -170,6 +160,7 @@ impl From<rmp_serde::encode::Error> for DBError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     #[test]
     fn save() {
         pretty_env_logger::try_init();
