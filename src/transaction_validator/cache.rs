@@ -6,7 +6,7 @@ use std::{
     path::PathBuf,
 };
 use rayon::prelude::*;
-use web3::types::{Transaction, TransactionReceipt, Trace, Log, H160, H256, U256, BlockNumber, Block as Web3Block};
+use web3::types::{Transaction, TransactionReceipt, Trace, Log, H160, H256, U256, BlockNumber, Block as Web3Block, U128};
 
 use super::{
     err::CacheError,
@@ -116,10 +116,11 @@ impl TransactionCache {
     }
 
     /// get a transaction hash from cache by block number
-    crate fn txhash_by_blocknum(&self, block_num: u64) -> Option<H256> {
+    crate fn txhash_by_blocknum_index(&self, block_num: u64, index: usize) -> Option<H256> {
         let block_num = U256::from(block_num);
+        let index = U128::from(index);
         self.cache.par_iter()
-            .find_any(|(_, v)| v.transaction.as_ref().unwrap().block_number.expect("Block number will never be pending; qed") == block_num)
+            .find_any(|(_, v)| v.transaction.as_ref().unwrap().block_number.expect("Block number will never be pending; qed") == block_num && v.transaction.as_ref().unwrap().transaction_index.unwrap() == index)
             .map(|(k, _)| k.clone())
     }
 
@@ -127,8 +128,8 @@ impl TransactionCache {
         self.cache.get(tx_hash)
     }
 
-    crate fn tx_by_blocknum(&self, block_num: u64) -> Option<&Tx> {
-        let tx_hash = self.txhash_by_blocknum(block_num)?;
+    crate fn tx_by_blocknum_index(&self, block_num: u64, index: usize) -> Option<&Tx> {
+        let tx_hash = self.txhash_by_blocknum_index(block_num, index)?;
         self.get(&tx_hash)
     }
 

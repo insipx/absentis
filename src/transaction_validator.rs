@@ -4,9 +4,9 @@ mod simpledb;
 pub mod err;
 
 use log::*;
-use evmap::{/*unsafe!*/ ShallowCopy /*unsafe!*/, ReadHandle};
 use serde_derive::Deserialize;
 use failure::Error;
+use rayon::prelude::*;
 use futures::{
     future::Future,
     stream::Stream,
@@ -15,7 +15,7 @@ use futures::{
 };
 use web3::{
     BatchTransport,
-    types::{Trace, Action, Res, Transaction, TransactionId, BlockNumber, TransactionReceipt, H160, BlockId, Block as Web3Block, H256},
+    types::{Trace, Action, Res, Transaction, TransactionId, BlockNumber, TransactionReceipt, H160, BlockId, Block as Web3Block, H256, Index},
 };
 use std::path::PathBuf;
 use super::{
@@ -27,60 +27,47 @@ use super::{
 
 use self::cache::{TxType, Tx, Block, TransactionCache as Cache, CacheAction};
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Clone, PartialEq)]
 pub struct TxEntry  {
     #[serde(rename = "blockNum")]
     block_num: u64,
     #[serde(rename = "transactionIndex")]
-    transaction_index: u32,
+    transaction_index: usize,
     location: String,
 }
 
-#[derive(Debug, Clone)]
-struct MapEntry  {
-    transaction_index: u32,
-    location: String,
-}
-
-impl PartialEq for MapEntry {
-    fn eq(&self, other: &MapEntry) -> bool {
-        self.transaction_index == other.transaction_index &&
-            self.location == other.location
-    }
-}
-
-impl Eq for MapEntry {}
-
-impl evmap::ShallowCopy for MapEntry {
-    unsafe fn shallow_copy(&mut self) -> Self {
-        MapEntry {
-            transaction_index: self.transaction_index.shallow_copy(),
-            location: self.location.shallow_copy()
-        }
+impl std::fmt::Display for TxEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "block: {}, index: {}, location: {}", self.block_num, self.transaction_index, self.location)
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum InvalidEntry {
-    Missing {block_num: u32, transaction_index: u32, location: String },
-    Incorrect {block_num: u32, transaction_index: u32, location: String },
+    Missing(H256),
+    Incorrect(TxEntry, Option<H256>) // hash is None if transction does not exist on ethereum mainnet
+}
+
+impl std::fmt::Display for InvalidEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            InvalidEntry::Incorrect(entry, hash) => {
+                if hash.is_some() {
+                    write!(f, "Incorrect Entry at {} with hash: {:x}", entry, hash.expect("scope is conditional; qed"))
+                } else {
+                    write!(f, "Incorrect Entry at {}, Transaction does not exist", entry)
+                }
+            }
+            InvalidEntry::Missing(hash) => write!(f, "Missing Transaction {:x}", hash),
+        }
+    }
 }
 
 pub struct TransactionValidator {
-    read_handle: ReadHandle<u64, MapEntry>,
+    csv: Vec<TxEntry>,
     cache: Cache,
     to_block: BlockNumber,
     addr: H160,
-}
-
-macro_rules! add {
-    ($location: expr, $vec: ident, $tx: ident) => ({
-        $vec.push(TxEntry {
-            block_num: $tx.block.as_ref().unwrap().block.number.unwrap().as_u64(),
-            transaction_index: $tx.transaction.as_ref().unwrap().transaction_index.unwrap().as_u32(),
-            location: $location.into()
-        })
-    });
 }
 
 //TODO: skip DOS transactions (blocks 2283440 -- 2718436 with > 250 traces) #p1
@@ -93,17 +80,17 @@ impl TransactionValidator  {
     where
         T: BatchTransport + Send + Sync + 'static
     {
+        let mut csv_vec = Vec::new();
         let mut rdr = csv::Reader::from_path(csv_file.as_path())?;
-        let (read, mut write) = evmap::new();
         for result in rdr.deserialize() {
             let res: TxEntry = result?;
-            write.insert(res.block_num, MapEntry {transaction_index: res.transaction_index, location: res.location});
+            csv_vec.push(res);
         }
-        write.refresh();
+
         // discard write handle; we should never modify the original CSV
         let to_block = to_block.unwrap_or(BlockNumber::Latest);
         Ok(TransactionValidator {
-            read_handle: read,
+            csv: csv_vec,
             cache: Self::build_local_cache(client, to_block.clone(), address)?,
             to_block,
             addr: address,
@@ -179,23 +166,44 @@ impl TransactionValidator  {
     // attempts to validate csv list of transactions, returning any incorrectly included
     // transactions
     // return a stream of missing, or incorrectly included transactions
-    pub fn scan(&self) -> Result<Scan, Error> {
+    pub fn scan<T>(&self, client: &Client<T>) -> Result<Scan, Error>
+    where
+        T: BatchTransport + Send + Sync + 'static,
+        <T as web3::Transport>::Out: Send
+    {
         let (tx, rx): (UnboundedSender<InvalidEntry>, UnboundedReceiver<InvalidEntry>) = mpsc::unbounded();
-        self.find_misplaced(tx.clone());
+        self.find_misplaced(client, tx.clone())?;
         Ok(Scan { inner: rx })
     }
 
     /// find transactions that were incorrectly included in the CSV
-    fn find_misplaced(&self, sender: UnboundedSender<InvalidEntry>) -> Result<(), Error>
+    fn find_misplaced<T>(&self, client: &Client<T>, sender: UnboundedSender<InvalidEntry>) -> Result<(), Error>
+    where
+        T: BatchTransport + Send + Sync + 'static,
+        <T as web3::Transport>::Out: Send,
     {
-
-        /*
-        self.read_handle.for_each(|(k, entry)| {
-
-        });
+        let remote = client.remote();
+        for entry in self.csv.par_iter() {
+            let entry = entry.clone();
+            if let None = self.cache.tx_by_blocknum_index(entry.block_num, entry.transaction_index) {
+                let sender_async = sender.clone();
+                let fut = client.web3
+                    .eth()
+                    .transaction(TransactionId::Block(BlockId::Number(BlockNumber::Number(entry.block_num as u64)), Index::from(entry.transaction_index)))
+                    .then(move |t| {
+                        let t = try_web3!(t);
+                        let mut hash = None;
+                        if let Some(tx) = t {
+                            hash = Some(tx.hash)
+                        }
+                        sender_async.unbounded_send(InvalidEntry::Incorrect(entry, hash));
+                        drop(sender_async);
+                        Ok(())
+                    });
+                remote.spawn(|_| {fut});
+            }
+        }
         Ok(())
-         */
-        unimplemented!();
     }
 /*
     fn transaction_validator(&self, transaction: Transaction, tx: &UnboundedSender<InvalidEntry>) -> Result<(), Error>
@@ -223,12 +231,15 @@ impl TransactionValidator  {
     // in Logs/Receipt
     //     - log_N_topic_M
     //     - log_N_generator
+    //     - creation
+    //     - data
     // in trace
     //     - self-destruct
     //     - creation
     //     - refundAddr
     //     - to
     //     - from
+    //     - input
     // in transaction
     //     - input
     // in block
@@ -237,8 +248,8 @@ impl TransactionValidator  {
     // log_N_data | trace_N_from | trace_N_to | trace_N_refundAddr | trace_N_creation |
     // trace_N_self-destruct | trace_N_input ]
     /// does parsing to put the information we found into format of csv for easy scanning
-
-    fn mirror(&self, tx: Tx) -> Vec<TxEntry> {
+/*
+    fn mirror(&self, tx: &Tx) -> Vec<TxEntry> {
         let mut tx_vec = Vec::new();
         if tx.block.as_ref().unwrap().block.author == self.addr {
             add!("miner", tx_vec, tx)
@@ -246,32 +257,111 @@ impl TransactionValidator  {
         if self.scan_bytes(&tx.transaction.as_ref().unwrap().input.0) {
             add!("input", tx_vec, tx);
         }
-        if tx.transaction.as_ref().unwrap().to.unwrap() == self.addr {
+        if tx.transaction.as_ref().unwrap().to.is_some() && tx.transaction.as_ref().unwrap().to.unwrap() == self.addr {
             add!("to", tx_vec, tx);
         }
         if tx.transaction.as_ref().unwrap().from == self.addr {
             add!("from", tx_vec, tx);
         }
-        for (idx, trace) in tx.traces.unwrap().iter().enumerate().skip(1) {
-
+        if let Some(c_addr) = tx.receipt.as_ref().unwrap().contract_address {
+            if c_addr == self.addr {
+                add!("creation", tx_vec, tx)
+            }
+        }
+        for (idx, log) in tx.receipt.as_ref().unwrap().logs.iter().enumerate() {
+            if log.address == self.addr {
+                let log_str = format!("{}_{}_{}", "log", idx, "generator");
+                add!(log_str, tx_vec, tx);
+            }
+            if self.scan_bytes(&log.data.0) {
+                let log_str = format!("{}_{}_{}", "log", idx, "data");
+                add!(log_str, tx_vec, tx);
+            }
+            for (top_idx, topic) in log.topics.iter().enumerate() {
+                if self.scan_bytes(&(*topic).to_vec()) {
+                    let log_str = format!("{}_{}_{}_{}", "log", idx, "topic", top_idx);
+                    add!(log_str, tx_vec, tx);
+                }
+            }
+        }
+        for (idx, trace) in tx.traces.as_ref().unwrap().iter().enumerate() {
+            if let Some(st) = self.scan_trace_result(&trace.result) {
+                if trace.trace_address.len() > 0 {
+                    let trace_str = format!("{}_{}_{}_{}", "trace", idx, self.trace_addr(&trace.trace_address), st);
+                    add!(trace_str, tx_vec, tx);
+                } else {
+                    let trace_str = format!("{}_{}_{}", "trace", idx, st);
+                    add!(trace_str, tx_vec, tx)
+                }
+            }
+            if let Some(act_vec) = self.scan_trace_action(&trace.action) {
+                tx_vec.extend(act_vec.iter().map(|l| {
+                    if trace.trace_address.len() > 0 {
+                        TxEntry {
+                            location: format!("{}_{}_{}", "trace", idx, l),
+                            block_num: tx.block.as_ref().unwrap().block.number.unwrap().as_u64(),
+                            transaction_index: tx.transaction.as_ref().unwrap().transaction_index.unwrap().as_u32(),
+                        }
+                    } else {
+                        TxEntry {
+                            location: format!("{}_{}_{}_{}", "trace", idx, self.trace_addr(&trace.trace_address), l),
+                            block_num: trace.block_number,
+                            transaction_index: tx.transaction.as_ref().unwrap().transaction_index.unwrap().as_u32(),
+                        }
+                    }
+                }))
+            }
         }
 
         tx_vec
     }
+    */
+    fn trace_addr(&self, addr: &Vec<usize>) -> String {
+        let mut string = String::from("[");
+        for (idx, x) in addr.iter().enumerate() {
+            if idx == 0 {
+                string = format!("{}{}", string, x);
+            } else {
+                string = format!("{}_{}", string ,x)
+            }
+        }
+        string.push(']');
+        string
+    }
 
-    fn scan_trace_result(&self, res: Res) -> Option<String> {
+    fn scan_trace_result(&self, res: &Res) -> Option<String> {
         match res {
-            Res::Call(ref call_res) if self.scan_bytes(&call_res.output.0) => Some("data".into()),
-            Res::Create(ref create_res) if self.scan_bytes(&create_res.code.0) => Some("data".into()),
-            Res::Create(ref create_res) if create_res.address == self.addr => Some("creation".into()),
-            Res::FailedCallOrCreate(msg) => None,
+            Res::Call(_) => None,
+            Res::Create(ref create_res) if create_res.address == self.addr => Some("self-destruct".into()), // might be self-destruct
+            Res::FailedCallOrCreate(_) => None,
             Res::None => None,
             _ => None
         }
     }
 
-    fn scan_trace_action(&self, action: Action) -> Option<String> {
-        None
+    fn scan_trace_action(&self, action: &Action) -> Option<Vec<String>> {
+        let mut act_vec: Vec<String> = Vec::new();
+        match action {
+            Action::Call(ref call) => {
+                if call.from == self.addr {act_vec.push("from".into())}
+                if call.to == self.addr { act_vec.push("to".into())}
+                if self.scan_bytes(&call.input.0) { act_vec.push("input".into())}
+            },
+            Action::Create(create) => {
+                if create.from == self.addr {act_vec.push("from".into())}
+            },
+            Action::Suicide(s) => {
+                if s.address == self.addr {act_vec.push("creation".into())} // might be creation
+                if s.refund_address == self.addr {act_vec.push("refundAddr".into())}
+            },
+            Action::Reward(_) => {
+                // don't do rewards
+
+            },
+        }
+        if act_vec.len() == 0 {
+            None
+        } else {Some(act_vec)}
     }
 }
 
@@ -331,7 +421,7 @@ mod tests {
     fn tx_validator(client: &mut Client<web3::transports::http::Http>) -> TransactionValidator {
         match TransactionValidator::new(client,
                                        PathBuf::from("/home/insi/Projects/absentis/tx_list.csv"),
-                                       Some(BlockNumber::Number(6_000_000)),
+                                       Some(BlockNumber::Number(1_000_000)),
                                        Address::from("0xfb6916095ca1df60bb79ce92ce3ea74c37c5d359"))
         {
             Err(e) => {
@@ -341,7 +431,7 @@ mod tests {
                 panic!("failed due to ERROR");
             },
             Ok(v) => {
-                info!("Len: {}", v.read_handle.len());
+                info!("Len: {}", v.csv.len());
                 info!("Success!");
                 v
             }
@@ -353,7 +443,31 @@ mod tests {
         pretty_env_logger::try_init();
         let conf = Configuration::new().expect("Could not create configuration");
         let mut client = Client::<web3::transports::http::Http>::new_http(&conf).expect("Could not build client");
+        let _validator = tx_validator(&mut client);
+    }
+
+    #[test]
+    fn it_should_scan() {
+        pretty_env_logger::try_init();
+        let conf = Configuration::new().expect("Could not create configuration");
+        let mut client = Client::<web3::transports::http::Http>::new_http(&conf).expect("Could not build client");
         let validator = tx_validator(&mut client);
+        let fut = validator.scan().unwrap().for_each(|inv| {
+            info!("Invalid Transaction: {}", inv);
+            Ok(())
+        });
+        client.run(fut);
+    }
+
+    #[test]
+    fn it_should_mirror() {
+        pretty_env_logger::try_init();
+        let conf = Configuration::new().expect("Could not create configuration");
+        let mut client = Client::<web3::transports::http::Http>::new_http(&conf).expect("Could not build client");
+        let validator = tx_validator(&mut client);
+        let tx = validator.cache.tx_by_blocknum(988725).unwrap();
+        let mir = validator.mirror(&tx);
+        info!("Mirrored: {:?}", mir);
     }
 /*
     #[test]
