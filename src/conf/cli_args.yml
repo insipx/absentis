@@ -46,6 +46,9 @@ args:
         help: Sets a csv file to parse and validate transactions
         takes_value: true
         required: false
+        requires:
+          - to
+          - address
   - from:
       long: from
       help: Set the block from which to start exploring

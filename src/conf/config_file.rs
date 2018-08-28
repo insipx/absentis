@@ -1,15 +1,13 @@
 // macros
 use serde_derive::*;
 use log::*;
-// structs
-use std::fs;
-use std::io::Write;
-use std::env;
-use std::path::PathBuf;
+
+use failure::{Error, ResultExt};
+use std::{ fs, env, io::Write, path::PathBuf};
 use config::{File, Config};
 use reduce::Reduce;
 use clap::{arg_enum, _clap_count_exprs};
-use super::err::ConfigurationError;
+use crate::err::{ErrorKind, ConfMsg};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ConfigFile {
@@ -118,100 +116,103 @@ impl Default for ConfigFile {
 impl ConfigFile {
     /// Default configuration path is ~/.config/absentis.toml (On UNIX)
     /// this can be modified by passing -c (--config) to absentis
-    pub fn new(mut config_path: Option<PathBuf>) -> Result<Self, ConfigurationError> {
+    pub fn new(mut config_path: Option<PathBuf>) -> Result<Self, Error> {
         let mut tmp = env::temp_dir();
         tmp.push("absentis_default.toml");
         info!("Temp Config Path: {:?}", &tmp);
-        let mut default_file = fs::File::create(tmp.clone())?;
+        let mut default_file = fs::File::create(tmp.clone()).with_context(|e| format!("Could not create temporary configuration: {}", e))?;
         let default_config = Self::default();
-        let toml = toml::to_string_pretty(&default_config)?;
-        default_file.write_all(toml.as_bytes())?;
+        let toml = toml::to_string_pretty(&default_config).with_context(|e| format!("Could not serialize default configuration {}", e))?;
+        default_file.write_all(toml.as_bytes()).with_context(|e| format!("Could not write to temporary default configuration {}", e))?;
         info!("Default ConfigFile: {:?}", default_config);
 
         if config_path.is_none() { // if a custom configuration path has not been set, use default
             config_path = Some(Self::default_path().and_then(|p| {
                 if !p.as_path().exists() { // check to make sure the user config exists,
-                    let mut new_f = fs::File::create(p.as_path())?; // if not create an empty file so we can fill it with defaults
-                    new_f.write_all(toml.as_bytes())?;
+                    // if not create an empty file so we can fill it with defaults
+                    let mut new_f = fs::File::create(p.as_path()).with_context(|e| format!("Could not create new config {}", e))?;
+                    new_f.write_all(toml.as_bytes()).with_context(|e| format!("Could not write to new config {}", e))?;
                 }
                 Ok(p)
             })?);
         }
         let mut conf = Config::new();
-        conf.merge(File::with_name(tmp.to_str().expect("Temp file should always be valid UTF-8")))?;
+        conf.merge(File::with_name(tmp.to_str().expect("Temp file should always be valid UTF-8")))
+            .context(ErrorKind::InvalidConfiguration(ConfMsg::None))?;
         conf.merge(
-                File::with_name(config_path.expect("Scope is conditional; qed")
-                                .to_str()
-                                .ok_or_else(|| ConfigurationError::InvalidConfigPath)?
-                )
-            )?;
-
-        // info!("Configuration: {:?}", conf.try_into::<HashMap<String, String>>()?);
+                File::with_name(config_path.expect("scope is conditional; qed")
+                                .to_str().expect("Should always be valid UTF-8"))
+            ).context(ErrorKind::InvalidConfiguration(ConfMsg::None))?;
         conf.try_into().map_err(|e| e.into())
     }
 
-    pub fn new_default() -> Result<(), ConfigurationError> {
+    pub fn new_default() -> Result<(), Error> {
         let default_config = Self::default();
-        let toml = toml::to_string_pretty(&default_config)?;
-        let default_path = Self::default_path()?;
+        let toml = toml::to_string_pretty(&default_config).context(ErrorKind::InvalidConfiguration(ConfMsg::None))?;
+        let default_path = Self::default_path().context(ErrorKind::InvalidConfiguration(ConfMsg::None))?;
         if !default_path.as_path().exists() { // check to see if a default already exists
-            let mut new_default = fs::File::create(default_path.as_path())?;
-            new_default.write_all(toml.as_bytes())?;
+            let mut new_default = fs::File::create(default_path.as_path()).context(ErrorKind::InvalidConfiguration(ConfMsg::None))?;
+            new_default.write_all(toml.as_bytes()).context(ErrorKind::InvalidConfiguration(ConfMsg::None))?;
             Ok(())
         } else {
-            Err(ConfigurationError::ConfigExists)
+            warn!("Default already exists");
+            Ok(())
         }
     }
 
-    pub fn from_default() -> Result<ConfigFile, ConfigurationError> {
-        let path = Self::default_path()?;
-        fs::read_to_string(path.as_path())?.parse().map_err(|e| ConfigurationError::InvalidToml(e).into())
+    pub fn from_default() -> Result<ConfigFile, Error> {
+        let path = Self::default_path().context(ErrorKind::InvalidConfiguration(ConfMsg::None))?;
+        Ok(fs::read_to_string(path.as_path())
+            .context(ErrorKind::InvalidConfiguration(ConfMsg::None))?
+            .parse()
+            .context(ErrorKind::InvalidConfiguration(ConfMsg::None))?)
     }
 
-    pub fn from_custom(config_path: PathBuf) -> Result<ConfigFile, ConfigurationError> {
-        fs::read_to_string(config_path.as_path())?
+    pub fn from_custom(config_path: PathBuf) -> Result<ConfigFile, Error> {
+        Ok(fs::read_to_string(config_path.as_path())
+            .context(ErrorKind::InvalidConfiguration(ConfMsg::None))?
             .parse()
-            .map_err(|e| ConfigurationError::InvalidToml(e).into())
+            .context(ErrorKind::InvalidConfiguration(ConfMsg::None))?)
     }
 
     pub fn default_exists() -> bool {
         match Self::default_path() {
             Err(e) => {
-                error!("{}", e);
+                warn!("{}", e);
                 false
             },
             Ok(v) => v.as_path().exists()
         }
     }
 
-    fn default_path() -> Result<PathBuf, ConfigurationError> {
+    fn default_path() -> Result<PathBuf, Error> {
         dirs::config_dir().and_then(|mut conf| {
             conf.push("absentis.toml");
             Some(conf)
-        }).ok_or(ConfigurationError::CouldNotFindHomeDir)
+        }).ok_or(ErrorKind::InvalidConfiguration(ConfMsg::None).into())
     }
 }
 
 macro_rules! is_set {
     ($opt:expr, $msg:expr) => ({
-        $opt.ok_or_else(|| ConfigurationError::OptionNotSet($msg.to_string()))?
+        $opt.ok_or_else(|| ErrorKind::InvalidConfiguration(ConfMsg::OptionNotSet($msg.to_string())))?
     });
 }
 
 macro_rules! is_found {
     ($opt:expr, $msg:expr) => ({
-        $opt.ok_or_else(|| ConfigurationError::NotFound($msg.to_string()))?
+        $opt.ok_or_else(|| ErrorKind::InvalidConfiguration(ConfMsg::NotFound($msg.to_string())))?
     })
 }
 
 // getters
 impl ConfigFile {
 
-    pub fn infura_url(&self) -> Result<String, ConfigurationError> {
+    pub fn infura_url(&self) -> Result<String, Error> {
         Ok(infura_url!(self.infura_key()?))
     }
 
-    fn infura_key(&self) -> Result<String, ConfigurationError>  {
+    fn infura_key(&self) -> Result<String, Error>  {
         let inf = is_set!(self.infura.as_ref(), "Infura Api Key");
         Ok(inf.api_key.clone())
     }
@@ -225,7 +226,7 @@ impl ConfigFile {
     // Transport is returned as a String. So, if the transport is IPC it will have to be converted
     // to a Path
     pub fn transport<F>(&self, transport: Option<Transport>, fun: F)
-        -> Result<(String, Transport), ConfigurationError>
+        -> Result<(String, Transport), Error>
         where
             F: Fn(&EthNode) -> bool
     {
@@ -277,7 +278,7 @@ impl ConfigFile {
     }
 
     // returns the url from the first Eth node that matches the predicate function
-    pub fn url<F>(&self, fun: F) -> Result<String, ConfigurationError>
+    pub fn url<F>(&self, fun: F) -> Result<String, Error>
         where
             F: Fn(&EthNode) -> bool
     {
@@ -294,7 +295,7 @@ impl ConfigFile {
     }
 
     // returns the ipc path from the first EthNode that matches the predicate function
-    pub fn ipc_path<F>(&self, fun: F) -> Result<PathBuf, ConfigurationError>
+    pub fn ipc_path<F>(&self, fun: F) -> Result<PathBuf, Error>
         where
             F: Fn(&EthNode) -> bool
     {
@@ -328,23 +329,7 @@ mod tests {
     use log::{debug, error, info, log};
     use pretty_env_logger;
     // this test tends to screw things up
-/*
-    #[test]
-    fn it_should_create_new_default_config() {
-        env_logger::try_init();
-        let conf = Configuration::new(None);
 
-        match conf {
-            Ok(v) => {
-                info!("Default Config: {:?}", v);
-            },
-            Err(e) => {
-                error!("Error: {}", e);
-                panic!("Failed due to error");
-            }
-        }
-    }
-*/
     #[test]
     fn it_should_return_default_path() {
         pretty_env_logger::try_init();

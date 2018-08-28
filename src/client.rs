@@ -1,12 +1,12 @@
 use log::*;
 use std::path::PathBuf;
 use web3::{Transport, BatchTransport, transports};
-use failure::Error;
+use failure::{Error, ResultExt};
 use futures::future::Future;
 use super::{
     types::MAX_PARALLEL_REQUESTS,
     conf::Configuration,
-    err::ClientError,
+    err::ErrorKind
 };
 
 pub struct Client<T: Transport> where web3::transports::batch::Batch<T>: Transport {
@@ -19,7 +19,7 @@ pub struct Client<T: Transport> where web3::transports::batch::Batch<T>: Transpo
 impl<T> Client<T> where T: BatchTransport + Clone {
 
     pub fn new(transport: T) -> Result<Self, Error> {
-        let ev_loop = tokio_core::reactor::Core::new()?;
+        let ev_loop = tokio_core::reactor::Core::new().context(ErrorKind::Async)?;
         Ok(Client {
             web3: web3::Web3::new(transport.clone()),
             web3_batch: web3::Web3::new(web3::transports::Batch::new(transport.clone())),
@@ -55,7 +55,7 @@ impl<T> Client<T> where T: BatchTransport + Clone {
     }
 
     pub fn new_ipc(conf: &Configuration) -> Result<Client<transports::ipc::Ipc>, Error> {
-        let ev_loop = tokio_core::reactor::Core::new()?;
+        let ev_loop = tokio_core::reactor::Core::new().context(ErrorKind::Async)?;
         ClientBuilder::ipc()
             .path(PathBuf::from(conf.url()))
             .handle(ev_loop.handle())
@@ -64,7 +64,7 @@ impl<T> Client<T> where T: BatchTransport + Clone {
     }
 
     pub fn new_http(conf: &Configuration) -> Result<Client<transports::http::Http>, Error> {
-        let ev_loop = tokio_core::reactor::Core::new()?;
+        let ev_loop = tokio_core::reactor::Core::new().context(ErrorKind::Async)?;
         ClientBuilder::http()
            .url(conf.url())
            .handle(ev_loop.handle())
@@ -96,9 +96,9 @@ impl HttpBuilder {
         new
     }
 
-    fn build(&self, ev_loop: tokio_core::reactor::Core) ->  Result<Client<transports::http::Http>, ClientError> {
-        let url = self.url.as_ref().ok_or_else(|| ClientError::MustSpecify("URL".into()))?;
-        let handle = self.handle.as_ref().ok_or_else(|| ClientError::MustSpecify("URL".into()))?;
+    fn build(&self, ev_loop: tokio_core::reactor::Core) ->  Result<Client<transports::http::Http>, Error> {
+        let url = self.url.as_ref().ok_or(ErrorKind::Internal)?;
+        let handle = self.handle.as_ref().ok_or(ErrorKind::Internal)?;
         let max = self.max_parallel.unwrap_or(MAX_PARALLEL_REQUESTS);
         let http =
             web3::transports::Http::with_event_loop(url,handle,max);
@@ -141,9 +141,9 @@ impl IpcBuilder {
         new.handle = Some(handle);
         new
     }
-    fn build(&self, ev_loop: tokio_core::reactor::Core) -> Result<Client<transports::ipc::Ipc>, ClientError> {
-        let path = self.path.as_ref().ok_or_else(||ClientError::MustSpecify("Path".into()))?;
-        let handle = self.handle.as_ref().ok_or_else(||ClientError::MustSpecify("Tokio-core Handle".into()))?;
+    fn build(&self, ev_loop: tokio_core::reactor::Core) -> Result<Client<transports::ipc::Ipc>, Error> {
+        let path = self.path.as_ref().ok_or(ErrorKind::Internal)?;
+        let handle = self.handle.as_ref().ok_or(ErrorKind::Internal)?;
         let ipc = web3::transports::Ipc::with_event_loop(path.as_path(), handle);
 
         let ipc = match ipc {

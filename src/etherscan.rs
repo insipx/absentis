@@ -1,13 +1,14 @@
 use log::*;
 #[macro_use] mod types;
 pub use self::types::{EtherScanTx, EtherScanInternalTx, EtherScanResponse};
+use crate::err::{ErrorKind};
 use hyper::client::HttpConnector;
 use itertools::Itertools;
 use futures::{
     future::Future,
     stream::Stream,
 };
-use failure::Fail;
+use failure::{Error, ResultExt};
 use web3::types::{H160, H256};
 
 pub struct EtherScan {
@@ -44,7 +45,7 @@ impl EtherScan {
                              from: u64,
                              to: u64,
                              sort: SortType)
-                             -> Result<Vec<(H256, u64)>, EtherScanError>
+                             -> Result<Vec<(H256, u64)>, Error>
     {
         let req_normtx = eth_txlist!(addr, from.to_string(), to.to_string(), String::from(&sort));
         let req_inttx = eth_int_txlist!(addr, from.to_string(), to.to_string(), String::from(&sort));
@@ -52,7 +53,7 @@ impl EtherScan {
         let normal =  ev_loop.run(self.do_get(req_normtx.parse().expect("URI should not be invalid; qed")))?;
         let internal = ev_loop.run(self.do_get(req_inttx.parse().expect("URI should not be invalid; qed")))?;
         let norm_response = serde_json::from_slice::<EtherScanResponse<Vec<EtherScanTx>>>(&normal.to_vec())?.result;
-        let int_response = serde_json::from_slice::<EtherScanResponse<Vec<EtherScanInternalTx>>>(&internal.to_vec())?.result;
+        let int_response = serde_json::from_slice::<EtherScanResponse<Vec<EtherScanInternalTx>>>(&internal.to_vec()).context(ErrorKind::Parse)?.result;
         Ok(norm_response
            .iter()
            .map(|x| (x.hash, x.block_number))
@@ -62,45 +63,16 @@ impl EtherScan {
            .collect::<Vec<(H256, u64)>>())
     }
 
-    fn do_get(&self, uri: hyper::Uri) -> impl Future<Item = bytes::Bytes, Error = EtherScanError> {
+    fn do_get(&self, uri: hyper::Uri) -> impl Future<Item = bytes::Bytes, Error = Error> {
         self.client
             .get(uri)
             .and_then(|res| {
                 assert_eq!(res.status(), hyper::StatusCode::OK);
                 res.into_body().concat2()
             })
-            .map_err(|e| e.into())
+            .map_err(|e| ErrorKind::Network(format!("{}", e)).into())
             .and_then(|json| {
                 futures::future::result(Ok(json.into_bytes()))
             })
-    }
-}
-
-
-#[derive(Fail, Debug)]
-pub enum EtherScanError {
-    #[fail(display = "Could not decode Etherscan Response: {}", _0)]
-    FailedToDecode(#[cause] serde_json::Error),
-    #[fail(display = "Failed to make request: {}", _0)]
-    RequestError(#[cause] hyper::error::Error),
-    #[fail(display = "Conversion error; {}", _0)]
-    ConversionError(#[cause] std::str::Utf8Error)
-}
-
-impl From<serde_json::Error> for EtherScanError {
-    fn from(err: serde_json::Error) -> EtherScanError {
-        EtherScanError::FailedToDecode(err)
-    }
-}
-
-impl From<hyper::error::Error> for EtherScanError {
-    fn from(err: hyper::error::Error) -> EtherScanError {
-        EtherScanError::RequestError(err)
-    }
-}
-
-impl From<std::str::Utf8Error> for EtherScanError {
-    fn from(err: std::str::Utf8Error) -> EtherScanError {
-        EtherScanError::ConversionError(err)
     }
 }

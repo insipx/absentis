@@ -1,9 +1,8 @@
 //! parses configuration file and CLI options to return configured values
 mod config_file;
 mod cli;
-mod err;
 
-use log::{log, error, warn};
+use log::{error, warn};
 use failure::Error;
 use std::path::PathBuf;
 use web3::{
@@ -13,9 +12,9 @@ use web3::{
     }
 };
 
-use self::err::ConfigurationError;
 use self::config_file::{ConfigFile, Transport as Transport};
 use super::client::Client;
+use super::err::{ErrorKind, ConfMsg};
 
 pub use self::cli::Action;
 
@@ -83,9 +82,10 @@ impl Configuration {
 //     unimplemented!();
 // }
 
+/// parse cli arguments and/or configuration file if specified/default
 type UrlOrFile = (Option<ConfigFile>, String, Transport);
 fn url_or_file(file: Option<ConfigFile>, url: Option<String>, transport: Option<Transport>)
-               -> Result<UrlOrFile,Error> {
+               -> Result<UrlOrFile, Error> {
     match (file, url) {
         (None, Some(url)) => {
             let transport = transport.expect("A single url means `node` or `infura` was used");
@@ -113,9 +113,7 @@ fn url_or_file(file: Option<ConfigFile>, url: Option<String>, transport: Option<
         }
         _ => {
             error!("{}", verb_msg!("Must specify one of file or url"));
-            Err(ConfigurationError::NotFound("A suitable configuration could not be found".to_string())
-                .into())
+            Err(ErrorKind::InvalidConfiguration(ConfMsg::NotFound("Valid Configuration".to_string())).into())
         }
     }
-
 }

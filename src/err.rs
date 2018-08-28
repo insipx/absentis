@@ -1,70 +1,78 @@
-use failure::Fail;
+use failure::{Fail, Context, Backtrace};
+use std::fmt::{self, Display, Formatter};
 
-#[derive(Fail, Debug)]
-pub enum ClientError {
-    #[fail(display = "Must Specify a {}", _0)]
-    MustSpecify(String),
+#[derive(Debug)]
+pub struct AbsentisError {
+    inner: Context<ErrorKind>,
 }
 
-#[derive(Fail, Debug)]
-pub enum TransactionFinderError {
-    #[fail(display = "Impossible to find transactions from a later block to an earlier block!")]
-    ImpossibleTo,
-    #[fail(display = "A Web3 Error Occured: {}, Backtrace: {}", _0, _1)]
-    Web3(String, String),
+#[derive(Clone, Eq, PartialEq, Debug, Fail)]
+pub enum ErrorKind {
+    #[fail(display = "Network Error")]
+    Network(String),
+    #[fail(display = "Failure parsing response from Network")]
+    Parse,
+    #[fail(display = "Error while attempting asynchronous action")]
+    Async,
+    #[fail(display = "Error while parsing command-line arguments")]
+    CLI,
+    #[fail(display = "Configuration (toml) is invalid or could not be found")]
+    InvalidConfiguration(ConfMsg),
+    #[fail(display = "Error while attempting to load transactions from database")]
+    Database,
+    #[fail(display = "Error interacting with cache")]
+    Cache,
+    #[fail(display = "Error validating transactions")]
+    Validate(ValidateMsg),
+    #[fail(display = "An Internal Error has occurred. Please File a Bug Report.")]
+    Internal,
 }
 
-impl From<web3::error::Error> for TransactionFinderError {
-    fn from(err: web3::error::Error) -> TransactionFinderError {
-        TransactionFinderError::Web3(err.description().to_string(), format!("{:#?}", err.backtrace()))
+#[derive(Clone, Eq, PartialEq, Debug, Fail)]
+pub enum ValidateMsg {
+    #[fail(display = "CSV could not be parsed; invalid data")]
+    InvalidCsv
+}
+
+#[derive(Clone, Eq, PartialEq, Debug, Fail)]
+pub enum ConfMsg {
+    #[fail(display = "")]
+    None,
+    #[fail(display = "Option {} not set", _0)]
+    OptionNotSet(String),
+    #[fail(display = "Could not find {}", _0)]
+    NotFound(String)
+}
+
+impl Fail for AbsentisError {
+    fn cause(&self) -> Option<&Fail> {
+        self.inner.cause()
+    }
+    fn backtrace(&self) -> Option<&Backtrace> {
+        self.inner.backtrace()
     }
 }
 
-
-#[derive(Fail, Debug)]
-pub enum TransactionValidatorError {
-    #[fail(display = "CSV parsing failed: {}", _0)]
-    CSV(csv::Error),
-    #[fail(display = "Could not ascertain type of Transaction Part from Batch Request in order to build local cache")]
-    FailedToBuildLocalCache,
-    #[fail(display = "Error deserializing JSON: {}", _0)]
-    FailedToDecode(serde_json::Error),
-    #[fail(display = "Could not find: {}", _0)]
-    CouldNotFind(String),
-    #[fail(display = "{}", _0)]
-    Etherscan(super::etherscan::EtherScanError),
-    #[fail(display = "Web3 Error Occured {}", _0)]
-    Web3(String),
-    #[fail(display = "Cache Error {}", _0)]
-    Cache(#[cause] crate::transaction_validator::err::CacheError),
-}
-
-impl From<crate::transaction_validator::err::CacheError> for TransactionValidatorError {
-    fn from(err: crate::transaction_validator::err::CacheError) -> TransactionValidatorError {
-        TransactionValidatorError::Cache(err)
+impl Display for AbsentisError {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        Display::fmt(&self.inner, f)
     }
 }
 
-impl From<csv::Error> for TransactionValidatorError {
-    fn from(err: csv::Error) -> TransactionValidatorError {
-        TransactionValidatorError::CSV(err)
+impl AbsentisError {
+    pub fn kind(&self) -> &ErrorKind {
+        &*self.inner.get_context()
     }
 }
 
-impl From<serde_json::Error> for TransactionValidatorError {
-    fn from(err: serde_json::Error) -> TransactionValidatorError {
-        TransactionValidatorError::FailedToDecode(err)
+impl From<ErrorKind> for AbsentisError {
+    fn from(kind: ErrorKind) -> AbsentisError {
+        AbsentisError { inner: Context::new(kind) }
     }
 }
 
-impl From<super::etherscan::EtherScanError> for TransactionValidatorError {
-    fn from(err: super::etherscan::EtherScanError) -> TransactionValidatorError {
-        TransactionValidatorError::Etherscan(err)
-    }
-}
-
-impl From<web3::error::Error> for TransactionValidatorError {
-    fn from(err: web3::error::Error) -> TransactionValidatorError {
-        TransactionValidatorError::Web3(format!("{}", err))
+impl From<Context<ErrorKind>> for AbsentisError {
+    fn from(inner: Context<ErrorKind>) -> AbsentisError {
+        AbsentisError { inner }
     }
 }

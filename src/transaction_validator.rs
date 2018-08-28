@@ -5,7 +5,7 @@ pub mod err;
 
 use log::*;
 use serde_derive::Deserialize;
-use failure::Error;
+use failure::{Error, ResultExt};
 use rayon::prelude::*;
 use futures::{
     future::Future,
@@ -22,7 +22,7 @@ use super::{
     utils,
     etherscan::{EtherScan, SortType},
     client::{Client},
-    err::TransactionValidatorError,
+    err::{ErrorKind, ValidateMsg},
 };
 
 use self::cache::{TxType, Block, TransactionCache as Cache};
@@ -75,14 +75,15 @@ pub struct TransactionValidator {
 impl TransactionValidator  {
     //creates a new validator from genesis to specified block
     pub fn new<T>(client: &mut Client<T>, csv_file: PathBuf, to_block: Option<BlockNumber>, address: H160)
-                  -> Result<Self, TransactionValidatorError>
+                  -> Result<Self, Error>
     where
         T: BatchTransport + Send + Sync + 'static
     {
         let mut csv_vec = Vec::new();
-        let mut rdr = csv::Reader::from_path(csv_file.as_path())?;
+        let mut rdr = csv::Reader::from_path(csv_file.as_path())
+            .with_context(|e| format!("Could not get csv file {}", e))?;
         for result in rdr.deserialize() {
-            let res: TxEntry = result?;
+            let res: TxEntry = result.context(ErrorKind::Validate(ValidateMsg::InvalidCsv))?;
             csv_vec.push(res);
         }
 
@@ -95,8 +96,7 @@ impl TransactionValidator  {
         })
     }
 
-    fn build_local_cache<T>(client: &mut Client<T>, to_block: BlockNumber, addr: H160)
-                            -> Result<Cache, TransactionValidatorError>
+    fn build_local_cache<T>(client: &mut Client<T>, to_block: BlockNumber, addr: H160) -> Result<Cache, Error>
     where
         T: BatchTransport + Send + Sync + 'static,
     {
@@ -239,13 +239,13 @@ where
     F: Fn(A) -> TxType,
 {
     batch.submit_batch()
-        .from_err::<TransactionValidatorError>()
+        .map_err(|e| ErrorKind::Network(format!("{}", e)).into())
         .and_then(|vals| {
             let res = vals.into_iter()
                 .map(|val| {
                     serde_json::from_value(try_web3!(val)).map_err(|e| e.into())
                 })
-                .collect::<Result<Vec<A>, TransactionValidatorError>>();
+                .collect::<Result<Vec<A>, Error>>();
             futures::future::result(res)
         }).and_then(move |vals| {
             match vals

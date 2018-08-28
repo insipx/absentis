@@ -1,15 +1,16 @@
 //! A transaction cache for transaction_validator
 use log::*;
 use serde_derive::*;
+use failure::{Error, ResultExt};
 use std::{
     collections::HashMap,
     path::PathBuf,
 };
 use rayon::prelude::*;
 use web3::types::{Transaction, TransactionReceipt, Trace, Log, H160, H256, U256, BlockNumber, Block as Web3Block, U128};
+use crate::err::ErrorKind;
 
 use super::{
-    err::CacheError,
     // intermediary_types::{self as db_types,TxInt, LogInt},
     simpledb::SimpleDB,
 };
@@ -85,11 +86,11 @@ impl Displayable for BlockNumber {
 // doesn't do miner
 impl TransactionCache {
     /// create a new Cache
-    pub fn new(addr: H160, from_block: BlockNumber, to_block: BlockNumber) -> Result<Self, CacheError> {
+    pub fn new(addr: H160, from_block: BlockNumber, to_block: BlockNumber) -> Result<Self, Error> {
         let name = format!("0x{:x}_{}_{}.bin", addr, from_block.display(), to_block.display());
         info!("FILE: {:?}", Self::try_local(&name)?);
         let db = Self::try_local(&name)?;
-        let cache = db.get()?;
+        let cache = db.get().context(ErrorKind::Cache)?;
         info!("cache.len(): {}", cache.len());
         Ok(TransactionCache {
             populated: cache.len() > 0,
@@ -135,8 +136,8 @@ impl TransactionCache {
 
     // clones cache
     /// Save all transactions to a temporary database that lives in system cache directory by cloning
-    crate fn save(&mut self) -> Result<(), CacheError> {
-        Ok(self.db.save(self.cache.clone())?)
+    crate fn save(&mut self) -> Result<(), Error> {
+        Ok(self.db.save(self.cache.clone()).context(ErrorKind::Cache)?)
     }
 
     /// check if cache contains transactions
@@ -145,7 +146,7 @@ impl TransactionCache {
         self.populated
     }
 
-    fn try_local(name: &str) -> Result<SimpleDB<HashMap<H256, Tx>>, CacheError> {
+    fn try_local(name: &str) -> Result<SimpleDB<HashMap<H256, Tx>>, Error> {
         if Self::db_exists(name)? {
             Ok(SimpleDB::<HashMap<H256, Tx>>::new(Self::db_path(name)?)?)
         } else {
@@ -156,25 +157,25 @@ impl TransactionCache {
         }
     }
 
-    fn db_path(name: &str) -> Result<PathBuf, CacheError> {
-        let mut dir = Self::dir_path()?;
+    fn db_path(name: &str) -> Result<PathBuf, Error> {
+        let mut dir = Self::dir_path().context(ErrorKind::Cache)?;
         dir.push(name);
         Ok(dir)
     }
 
-    fn db_exists(name: &str) -> Result<bool, CacheError> {
-        let path = Self::db_path(name)?;
+    fn db_exists(name: &str) -> Result<bool, Error> {
+        let path = Self::db_path(name).context(ErrorKind::Cache)?;
         Ok(path.as_path().exists())
     }
 
-    fn dir_path() -> Result<PathBuf, CacheError> {
-        dirs::cache_dir().and_then(|mut d | {
+    fn dir_path() -> Result<PathBuf, Error> {
+        Ok(dirs::cache_dir().and_then(|mut d | {
             d.push("absentis");
             Some(d)
-        }).ok_or(CacheError::NotFound("Operating system specific cache directory".to_string()))
+        }).ok_or(ErrorKind::Cache)?)
     }
 
-    fn dir_exists() -> Result<bool, CacheError> {
+    fn dir_exists() -> Result<bool, Error> {
         Ok(Self::dir_path()?.is_dir())
     }
 }
