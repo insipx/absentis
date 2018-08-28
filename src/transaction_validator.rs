@@ -15,7 +15,7 @@ use futures::{
 };
 use web3::{
     BatchTransport,
-    types::{Trace, Transaction, TransactionId, BlockNumber, TransactionReceipt, H160, BlockId, Block as Web3Block, H256, Index},
+    types::{Address, Trace, Transaction, TransactionId, BlockNumber, TransactionReceipt, H160, BlockId, Block as Web3Block, H256, Index},
 };
 use std::path::PathBuf;
 use super::{
@@ -66,8 +66,8 @@ impl std::fmt::Display for InvalidEntry {
 pub struct TransactionValidator {
     csv: Vec<TxEntry>,
     cache: Cache,
+    addr: Address,
 }
-
 
 //TODO: skip DOS transactions (blocks 2283440 -- 2718436 with > 250 traces) #p1
 //https://medium.com/@tjayrush/defeating-the-ethereum-ddos-attacks-d3d773a9a063
@@ -91,6 +91,7 @@ impl TransactionValidator  {
         Ok(TransactionValidator {
             csv: csv_vec,
             cache: Self::build_local_cache(client, to_block, address)?,
+            addr: address,
         })
     }
 
@@ -163,63 +164,58 @@ impl TransactionValidator  {
     // attempts to validate csv list of transactions, returning any incorrectly included
     // transactions
     // return a stream of missing, or incorrectly included transactions
+    /// 'dedup' CSV list to include only transactions with unique block number and transaction index
     pub fn scan<T>(&self, client: &Client<T>) -> Result<Scan, Error>
     where
         T: BatchTransport + Send + Sync + 'static,
         <T as web3::Transport>::Out: Send
     {
         let (tx, rx): (UnboundedSender<InvalidEntry>, UnboundedReceiver<InvalidEntry>) = mpsc::unbounded();
-        self.find_misplaced(client, tx.clone(), false)?;
-        Ok(Scan { inner: rx })
-    }
-
-    pub fn scan_unique<T>(&self, client: &Client<T>) -> Result<Scan, Error>
-    where
-        T: BatchTransport + Send + Sync + 'static,
-        <T as web3::Transport>::Out: Send
-    {
-        let (tx, rx): (UnboundedSender<InvalidEntry>, UnboundedReceiver<InvalidEntry>) = mpsc::unbounded();
-        self.find_misplaced(client, tx.clone(), true)?;
+        self.find_misplaced(client, tx.clone())?;
         Ok(Scan { inner: rx })
     }
 
     /// find transactions that were incorrectly included in the CSV
-    fn find_misplaced<T>(&self, client: &Client<T>, sender: UnboundedSender<InvalidEntry>, unique: bool) -> Result<(), Error>
+    fn find_misplaced<T>(&self, client: &Client<T>, sender: UnboundedSender<InvalidEntry>) -> Result<(), Error>
     where
         T: BatchTransport + Send + Sync + 'static,
         <T as web3::Transport>::Out: Send,
     {
         let mut csv = self.csv.clone();
-        if unique {
-            let mut new_csv = Vec::new();
-            let mut added:  Vec<(u64, usize)> = Vec::new();
-            for entry in csv {
-                match added.binary_search(&(entry.block_num, entry.transaction_index)) {
-                    Ok(_) => {}, //added
-                    Err(pos) => {
-                        added.insert(pos, (entry.block_num, entry.transaction_index));
-                        new_csv.push(entry);
-                    }
+        let mut new_csv = Vec::new();
+        let mut added:  Vec<(u64, usize)> = Vec::new();
+        for entry in csv {
+            match added.binary_search(&(entry.block_num, entry.transaction_index)) {
+                Ok(_) => {}, //added
+                Err(pos) => {
+                    added.insert(pos, (entry.block_num, entry.transaction_index));
+                    new_csv.push(entry);
                 }
             }
-            csv = new_csv;
         }
+        csv = new_csv;
+
         let remote = client.remote();
         let eth = client.web3.eth();
+        let addr = self.addr.clone();
         csv.par_iter().for_each(|entry| {
             let entry = entry.clone();
+            // check if the transaction is included in our cache
             if let None = self.cache.tx_by_blocknum_index(entry.block_num, entry.transaction_index) {
                 let sender_async = sender.clone();
+                // our database did not find the transaction -- but that does not yet mean the transaction is incorrectly included in quickblocks.
+                // etherscan does not report transactions with the address included as 'data'.
+                // query our node for the transaction to check if it is in the input
                 let fut = eth
                     .transaction(TransactionId::Block(BlockId::Number(BlockNumber::Number(entry.block_num as u64)), Index::from(entry.transaction_index)))
                     .then(move |t| {
                         let t = try_web3!(t);
-                        let mut hash = None;
                         if let Some(tx) = t {
-                            hash = Some(tx.hash)
+                            if !scan_bytes(addr, &tx.input.0) /* addr doesn't exist in input */ {
+                                sender_async.unbounded_send(InvalidEntry::Incorrect(entry, Some(tx.hash))).unwrap();
+                                drop(sender_async);
+                            }
                         }
-                        sender_async.unbounded_send(InvalidEntry::Incorrect(entry, hash)).unwrap();
-                        drop(sender_async);
                         Ok(())
                     });
                 remote.spawn(|_| {fut});
@@ -228,6 +224,11 @@ impl TransactionValidator  {
         Ok(())
     }
 }
+
+fn scan_bytes(addr: H160, bytes: &Vec<u8>) -> bool {
+    bytes.windows(addr.len()).position(|window| &(*addr) == window).is_some()
+}
+
 
 /// asynchronously send a batch request
 // decides on conversion through the predicate F
@@ -309,7 +310,7 @@ mod tests {
         let mut client = Client::<web3::transports::http::Http>::new_http(&conf).expect("Could not build client");
         let _validator = tx_validator(&mut client);
     }
-/*
+
     #[test]
     fn it_should_scan() {
         pretty_env_logger::try_init();
@@ -320,92 +321,6 @@ mod tests {
             info!("Invalid Transaction: {}", inv);
             Ok(())
         });
-        client.run(fut);
-    }
-    */
-    #[test]
-    fn it_should_scan_unique() {
-        pretty_env_logger::try_init();
-        let conf = Configuration::new().expect("Could not create configuration");
-        let mut client = Client::<web3::transports::http::Http>::new_http(&conf).expect("Could not build client");
-        let validator = tx_validator(&mut client);
-        let fut = validator.scan_unique(&client).unwrap().for_each(|inv| {
-            info!("Invalid Transaction: {}", inv);
-            Ok(())
-        });
         client.run(fut).unwrap();
     }
-/*
-    #[bench]
-    fn bench_scan(b: &mut Bencher) {
-        b.iter(|| {
-            let conf = Configuration::new().expect("Could not create configuration");
-            let mut client = Client::<web3::transports::http::Http>::new_http(&conf).expect("Could not build client");
-            let validator = tx_validator(&mut client);
-            let fut = validator.scan(&client).unwrap().for_each(|inv| {
-                info!("Invalid Transaction: {}", inv);
-                Ok(())
-            });
-            client.run(fut).unwrap();
-        });
-    }
-    */
-
-/*
-    #[test]
-    fn it_should_scan() {
-        pretty_env_logger::try_init();
-        let conf = Configuration::new().expect("Configuration creation failed");
-        let mut client = Client::<web3::transports::http::Http>::new_http(&conf).expect("Could not build client");
-        let validator = tx_validator(&mut client);
-        validator.scan();
-
-    }
-    */
-/*
-    #[test]
-    fn it_should_test_cache() {
-        info!("IN FILTER");
-        pretty_env_logger::try_init();
-        let conf = Configuration::new().expect("Could not create configuration");
-        let tx_validator = TransactionValidator::new(
-            PathBuf::from("/home/insi/Projects/absentis/txs.csv"),
-            Some(BlockNumber::Number(1000000)),
-            Address::from("0xfb6916095ca1df60bb79ce92ce3ea74c37c5d359")).unwrap();
-
-        info!("Transaction validator instantiated");
-        let mut client = Client::<web3::transports::http::Http>::new_http(&conf).expect("Could not build client");
-        match tx_validator.build_local_cache(&client) {
-            Err(e) => {
-                error!("Error: {:?}", e);
-                panic!("ERROR");
-            },
-            Ok(v) => {
-                info!("CACHE: {:?}", v);
-            }
-        }
-        client.turn();
-    }
-     */
-    /*
-    #[test]
-    fn test_filter() {
-        pretty_env_logger::try_init();
-        let conf = Configuration::new().expect("Could not create configuration");
-        let mut client = Client::<web3::transports::http::Http>::new_http(&conf).expect("Could not build client");
-        let fut = trace_filter(&client, Some(BlockNumber::Number(2_000_000)), H160::from("0xfb6916095ca1df60bb79ce92ce3ea74c37c5d359"));
-        client.ev_loop().run(fut).unwrap();
-    }
-    */
-/*
-    #[test]
-    fn local_cache() {
-        pretty_env_logger::try_init();
-        let conf = Configuration::new().expect("Could not create configuration");
-        let mut client = Client::<web3::transports::http::Http>::new_http(&conf).expect("Could not build client");
-        let validator = tx_validator(&client);
-        info!("CACHE: {:?}", validator.transactions);
-
-    }
-  */
 }

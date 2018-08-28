@@ -67,12 +67,12 @@ impl<D> SimpleDB<D> where D: DeserializeOwned + Serialize + Default {
         })
     }
 
-    // open backend
+    /// open backend
     fn open(&self) -> Result<File, DBError> {
         Ok(OpenOptions::new().create(true).read(true).write(true).open(self.path.as_path())?)
     }
 
-    // mutate the file, always setting seek back to beginning
+    /// mutate the file, always setting seek back to beginning
     fn mutate<F>(&self, mut fun: F) -> Result<(), DBError>
     where
         F: FnMut(&mut File) -> Result<(), DBError>
@@ -83,6 +83,7 @@ impl<D> SimpleDB<D> where D: DeserializeOwned + Serialize + Default {
         Ok(())
     }
 
+    /// read file, setting seek back to the start
     fn read<F>(&self, fun: F) -> Result<D, DBError>
     where F: Fn(&File) -> Result<D, DBError>
     {
@@ -108,21 +109,6 @@ pub enum DBError {
     Bincode(#[fail(cause)] Box<bincode::Error>),
     #[fail(display = "Could not decode from JSON {}", _0)]
     SerdeJsonDecode(#[fail(cause)] serde_json::error::Error),
-    #[fail(display = "Could not decode RON {}", _0)]
-    RonDecode(#[fail(cause)] ron::de::Error),
-    #[fail(display = "Could not encode RON {}", _0)]
-    RonEncode(#[fail(cause)] ron::ser::Error)
-}
-impl From<ron::de::Error> for DBError {
-    fn from(err: ron::de::Error) -> DBError {
-        DBError::RonDecode(err)
-    }
-}
-
-impl From<ron::ser::Error> for DBError {
-    fn from(err: ron::ser::Error) -> DBError {
-        DBError::RonEncode(err)
-    }
 }
 
 impl From<Box<bincode::Error>> for DBError {

@@ -119,7 +119,6 @@ impl TransactionCache {
     crate fn txhash_by_blocknum_index(&self, block_num: u64, index: usize) -> Option<H256> {
         let block_num = U256::from(block_num);
         let index = U128::from(index);
-        info!("Block Num: {}, index: {}", block_num, index);
         self.cache.par_iter()
             .find_any(|(_, v)| v.transaction.as_ref().unwrap().block_number.expect("Block number will never be pending; qed") == block_num && v.transaction.as_ref().unwrap().transaction_index.unwrap() == index)
             .map(|(k, _)| k.clone())
@@ -388,11 +387,9 @@ mod test {
 
     #[test]
     fn get_blocknumber() {
-        // jpub fn new(addr: H160, from_block: BlockNumber, to_block: BlockNumber) -> Result<Self, CacheError>;
-        let cache = TransactionCache::new(Address::from("0xfb6916095ca1df60bb79ce92ce3ea74c37c5d359"), BlockNumber::Number(0), BlockNumber::Number(6000000)).unwrap();
-        // tx_by_blocknum_index(&self, block_num: u64, index: usize) -> Option<&Tx> {
-        let tx = cache.tx_by_blocknum_index(988728, 2);
+        pretty_env_logger::try_init();
+        let cache = TransactionCache::new(Address::from("0xfb6916095ca1df60bb79ce92ce3ea74c37c5d359"), BlockNumber::Earliest, BlockNumber::Number(6000000)).unwrap();
+        let tx = cache.tx_by_blocknum_index(1165405, 2);
         info!("TX: {:?}", tx);
-
     }
 }

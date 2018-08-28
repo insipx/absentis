@@ -46,7 +46,7 @@ where
 {
     let to = to.map(|t| BlockNumber::Number(t));
     let fut = self::transaction_validator::TransactionValidator::new(&mut client, file, to, address)?
-        .scan_unique(&client)?
+        .scan(&client)?
         .for_each(|v| {
             println!("{}", v);
             Ok(())
