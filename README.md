@@ -28,3 +28,8 @@ port = 8545
 
 ```
 
+
+Example Command w/o config file: 
+
+
+`./target/release/absentis -V txs2.csv --to 6000000 --address fb6916095ca1df60bb79ce92ce3ea74c37c5d359 -n http://localhost:8545 --transport http`
