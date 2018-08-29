@@ -1,34 +1,36 @@
-use log::{log, error};
+use log::*;
 use std::path::PathBuf;
-use web3::BatchTransport;
-use web3::transports;
-// use tokio::reactor::Reactor;
-use failure::Error;
+use web3::{Transport, BatchTransport, transports};
+use failure::{Error, ResultExt};
 use futures::future::Future;
-use super::types::MAX_PARALLEL_REQUESTS;
-use super::conf::Configuration;
-use super::err::ClientError;
+use super::{
+    types::MAX_PARALLEL_REQUESTS,
+    conf::Configuration,
+    err::ErrorKind
+};
 
-pub struct Client<T: BatchTransport> {  
+pub struct Client<T: Transport> where web3::transports::batch::Batch<T>: Transport {
     pub web3: web3::Web3<T>,
     pub web3_batch: web3::Web3<web3::transports::batch::Batch<T>>,
+    transport: T,
     ev_loop: tokio_core::reactor::Core,
 }
 
 impl<T> Client<T> where T: BatchTransport + Clone {
+
     pub fn new(transport: T) -> Result<Self, Error> {
-        let ev_loop = tokio_core::reactor::Core::new()?; 
+        let ev_loop = tokio_core::reactor::Core::new().context(ErrorKind::Async)?;
         Ok(Client {
             web3: web3::Web3::new(transport.clone()),
-            web3_batch: web3::Web3::new(web3::transports::Batch::new(transport)),
-            ev_loop,
+            web3_batch: web3::Web3::new(web3::transports::Batch::new(transport.clone())),
+            transport, ev_loop,
         })
     }
-    
+
     pub fn remote(&self) -> tokio_core::reactor::Remote {
         self.ev_loop.remote()
     }
-    
+
     pub fn handle(&self) -> tokio_core::reactor::Handle {
         self.ev_loop.handle()
     }
@@ -39,23 +41,32 @@ impl<T> Client<T> where T: BatchTransport + Clone {
         }
     }
 
-    pub fn run(&mut self, fut: impl Future<Item=(), Error=()>) -> () {
-        self.ev_loop.run(fut);
+    pub fn run<R, E>(&mut self, fut: impl Future<Item=R, Error=E>) -> Result<R, E> {
+        self.ev_loop.run(fut)
+    }
+
+    pub fn ev_loop(&mut self) -> &mut tokio_core::reactor::Core {
+        &mut self.ev_loop
+    }
+
+    /// returns a new web3_batch instance. useful for separating out types of requests
+    pub fn batch(&self) -> web3::Web3<web3::transports::batch::Batch<T>> {
+        web3::Web3::new(web3::transports::Batch::new(self.transport.clone()))
     }
 
     pub fn new_ipc(conf: &Configuration) -> Result<Client<transports::ipc::Ipc>, Error> {
-        let ev_loop = tokio_core::reactor::Core::new()?; 
+        let ev_loop = tokio_core::reactor::Core::new().context(ErrorKind::Async)?;
         ClientBuilder::ipc()
-            .path(conf.ipc_path()?)
+            .path(PathBuf::from(conf.url()))
             .handle(ev_loop.handle())
             .build(ev_loop)
             .map_err(|e| e.into())
     }
 
     pub fn new_http(conf: &Configuration) -> Result<Client<transports::http::Http>, Error> {
-        let ev_loop = tokio_core::reactor::Core::new()?; 
+        let ev_loop = tokio_core::reactor::Core::new().context(ErrorKind::Async)?;
         ClientBuilder::http()
-           .url(conf.url()?)
+           .url(conf.url())
            .handle(ev_loop.handle())
            .build(ev_loop)
            .map_err(|e| e.into())
@@ -85,11 +96,11 @@ impl HttpBuilder {
         new
     }
 
-    fn build(&self, ev_loop: tokio_core::reactor::Core) ->  Result<Client<transports::http::Http>, ClientError> {
-        let url = self.url.as_ref().ok_or_else(|| ClientError::MustSpecify("URL".into()))?;
-        let handle = self.handle.as_ref().ok_or_else(|| ClientError::MustSpecify("URL".into()))?;
+    fn build(&self, ev_loop: tokio_core::reactor::Core) ->  Result<Client<transports::http::Http>, Error> {
+        let url = self.url.as_ref().ok_or(ErrorKind::Internal)?;
+        let handle = self.handle.as_ref().ok_or(ErrorKind::Internal)?;
         let max = self.max_parallel.unwrap_or(MAX_PARALLEL_REQUESTS);
-        let http = 
+        let http =
             web3::transports::Http::with_event_loop(url,handle,max);
 
         let http = match http {
@@ -107,7 +118,8 @@ impl HttpBuilder {
 
         Ok(Client {
             web3: web3::Web3::new(http.clone()),
-            web3_batch: web3::Web3::new(web3::transports::batch::Batch::new(http)),
+            web3_batch: web3::Web3::new(web3::transports::batch::Batch::new(http.clone())),
+            transport: http,
             ev_loop,
         })
     }
@@ -129,9 +141,9 @@ impl IpcBuilder {
         new.handle = Some(handle);
         new
     }
-    fn build(&self, ev_loop: tokio_core::reactor::Core) -> Result<Client<transports::ipc::Ipc>, ClientError> {
-        let path = self.path.as_ref().ok_or_else(||ClientError::MustSpecify("Path".into()))?;
-        let handle = self.handle.as_ref().ok_or_else(||ClientError::MustSpecify("Tokio-core Handle".into()))?;
+    fn build(&self, ev_loop: tokio_core::reactor::Core) -> Result<Client<transports::ipc::Ipc>, Error> {
+        let path = self.path.as_ref().ok_or(ErrorKind::Internal)?;
+        let handle = self.handle.as_ref().ok_or(ErrorKind::Internal)?;
         let ipc = web3::transports::Ipc::with_event_loop(path.as_path(), handle);
 
         let ipc = match ipc {
@@ -148,7 +160,8 @@ impl IpcBuilder {
 
         Ok(Client {
             web3: web3::Web3::new(ipc.clone()),
-            web3_batch: web3::Web3::new(web3::transports::batch::Batch::new(ipc)),
+            web3_batch: web3::Web3::new(web3::transports::batch::Batch::new(ipc.clone())),
+            transport: ipc,
             ev_loop,
         })
     }

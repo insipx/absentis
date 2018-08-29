@@ -1,235 +1,119 @@
-// macros
-use serde_derive::*;
-use log::{log, info, error, debug};
-// structs
-use std::fs;
-use std::io::Write;
-use std::env;
-use std::path::PathBuf;
-use std::collections::HashMap;
+//! parses configuration file and CLI options to return configured values
+mod config_file;
+mod cli;
+
+use log::{error, warn};
 use failure::Error;
-use config::{self, File, Config};
-use super::err::ConfigurationError;
-use super::types::INFURA_URL;
+use std::path::PathBuf;
+use web3::{
+    transports::{
+        http::Http,
+        ipc::Ipc,
+    }
+};
 
-#[derive(Serialize, Deserialize, Debug)]
+use self::config_file::{ConfigFile, Transport as Transport};
+use super::client::Client;
+use super::err::{ErrorKind, ConfMsg};
+
+pub use self::cli::Action;
+
 pub struct Configuration {
-    nodes: Option<Vec<EthNode>>,
-    infura: Option<Infura>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct EthNode {
-    #[serde(rename = "type")]
-    kind: String,
-    http: Option<Http>,
-    ipc: Option<Ipc>
-}
-
-impl std::fmt::Display for EthNode {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.kind)
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct Http {
+    file: Option<ConfigFile>,
+    log_level: LogLevel,
     url: String,
-    port: usize,
+    transport: Transport,
+    pub action: Action,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-struct Ipc {
-    path: String
+pub enum ChosenClient {
+    Http(Client<Http>),
+    Ipc(Client<Ipc>),
+    Infura,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-struct Infura {
-    api_key: String,
-}
-
-
-impl Default for Configuration {
-
-    fn default() -> Self {
-
-        let mut nodes: Vec<EthNode> = Vec::new();
-        nodes.push(EthNode {
-            kind: "Parity".to_string(),
-            http: Some(Http {
-                url: "http://localhost".to_string(),
-                port: 8545 as usize
-            }),
-            ipc: None,
-        });
-        let infura = Some(Infura {
-            api_key: "".to_string(),
-        });
-
-        Configuration {
-            nodes: Some(nodes),
-            infura,
-        }
-    }
+#[derive(Debug)]
+pub enum LogLevel {
+    None,   // Error by default
+    Pleasant, // info's/warns
+    Tolerable, // debug
+    InsaneMode // trace/debug/info/warns
 }
 
 impl Configuration {
-    /// Default configuration path is ~/.config/absentis.toml (On UNIX)
-    /// this can be modified by passing -c (--config) to absentis
-    pub fn new(mut config_path: Option<PathBuf>) -> Result<Self, Error> {
-        let mut tmp = env::temp_dir();
-        tmp.push("absentis_default.toml");
-        info!("Temp Config Path: {:?}", &tmp);
-        let mut default_file = fs::File::create(tmp.clone())?;
-        let default_config = Self::default();
-        let toml = toml::to_string_pretty(&default_config)?;
-        default_file.write_all(toml.as_bytes())?;
-        info!("Default Configuration: {:?}", default_config);
-        if config_path.is_none() {
-            config_path = Some(Self::default_path().and_then(|p| { 
-                if !p.as_path().exists() { // check to make sure the user config exists, 
-                    let mut new_f = fs::File::create(p.as_path())?; // if not create an empty file so we can fill it with defaults
-                    new_f.write_all(toml.as_bytes())?;
-                }
-                Ok(p)
-            })?);
-        }
-        let mut conf = Config::new();
-        conf.merge(File::with_name(tmp.to_str().expect("Temp file should always be valid UTF-8")))?;
-        conf.merge(
-                File::with_name(config_path.expect("Scope is conditional; qed")
-                                .to_str()
-                                .ok_or_else(|| ConfigurationError::InvalidConfigPath)?
-                )
-            )?;
 
-        // info!("Configuration: {:?}", conf.try_into::<HashMap<String, String>>()?);
-        conf.try_into().map_err(|e| e.into())
-    } 
-
-    pub fn from_default() -> Result<Configuration, Error> {
-        let path = Self::default_path()?;
-        fs::read_to_string(path.as_path())?.parse().map_err(|e| ConfigurationError::InvalidToml(e).into())
+    pub fn new() -> Result<Self, Error> {
+        let opts = self::cli::parse()?;
+        let (file, url, transport) = url_or_file(opts.file, opts.url, opts.transport)?;
+        let action = opts.action;
+        Ok(Configuration {
+            file, url, transport, action,
+            log_level: opts.log_level,
+        })
     }
 
-    fn default_path() -> Result<PathBuf, ConfigurationError> {
-        dirs::config_dir().and_then(|mut conf| {
-            conf.push("absentis.toml");
-            Some(conf)
-        }).ok_or(ConfigurationError::CouldNotFindHomeDir)
-    }
-}
-
-
-impl Configuration {
-
-    fn infura_url(&self) -> Result<String, ConfigurationError> {
-        Ok(format!("{}{}", INFURA_URL, self.infura_key()?))
-    }
-    pub fn infura_key(&self) -> Result<String, ConfigurationError>  {
-        let inf = self.infura.as_ref()
-            .ok_or_else(||ConfigurationError::NotFound("Infura Api Key".to_string()))?;
-        Ok(inf.api_key.clone())
-    }
-    
-    pub fn url(&self) -> Result<String, ConfigurationError> {
-        if self.nodes.is_none() {
-            Ok(self.infura_url()?)
-        } else {
-            // TODO: change this to give a vector of urls, so we can try which ones are up
-            let nodes = self.nodes
-                .as_ref()
-                .ok_or_else(|| ConfigurationError::OptionNotSet("Eth Nodes".to_string()))?; 
-            
-            let node = nodes
-                .get(0)
-                .ok_or_else(||ConfigurationError::OptionNotSet("Eth Node".to_string()))?;
-            
-            let http: &super::conf::Http = node.http.as_ref()
-                .ok_or_else(|| ConfigurationError::OptionNotSet(format!("Http info for node {}", node)))?;
-            
-            Ok(format!("{}:{}", http.url, http.port))
+    // get a configured client
+    pub fn get_client(&self) -> Result<ChosenClient, Error> {
+        match self.transport {
+            Transport::Http => Ok(ChosenClient::Http(Client::<Http>::new_http(self)?)),
+            Transport::Ipc => Ok(ChosenClient::Ipc(Client::<Ipc>::new_ipc(self)?)),
+            _ => unimplemented!(),
         }
     }
-    
-    pub fn ipc_path(&self) -> Result<PathBuf, ConfigurationError> {
-        let nodes = self.nodes
-            .as_ref()
-            .ok_or_else(|| ConfigurationError::OptionNotSet("Eth Nodes".to_string()))?;
-        let node = nodes
-            .get(0)
-            .ok_or_else(|| ConfigurationError::OptionNotSet("Eth Node".to_string()))?;
-        
-        let ipc: &super::conf::Ipc = node.ipc.as_ref()
-            .ok_or_else(|| ConfigurationError::OptionNotSet(format!("IPC info for node {}", node)))?;
-        
-        Ok(PathBuf::from(ipc.path.clone()))
+
+    pub fn url(&self) -> String {
+        self.url.clone()
+    }
+
+    pub fn ipc_path(&self) -> PathBuf {
+        PathBuf::from(&self.url)
     }
 }
 
-pub trait Parse {
-    fn parse(&self) -> Result<Configuration, toml::de::Error>;
-}
+// TODO: #p3
+// if a host is not specific, we use the first host to respond to a Http JsonRPC net_peers query
+// if no hosts are found, we warn the user that no hosts have been found, and are falling back to
+// infura
+// if infura api key is not found, we inform the user and exit
+// fn get_node(file: &ConfigFile) -> EthNode {
+//     // first, ping the host to make sure they are even up
+//     // then depending on IPC or Http, create a synchronous web3 client,
+//     // return first host to respond to netPeers
+//     unimplemented!();
+// }
 
-impl Parse for String {
-    fn parse(&self) -> Result<Configuration, toml::de::Error> {
-        toml::from_str(self)
-    }
-}
-
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use log::{debug, error, info, log};
-    use env_logger;
-    // this test tends to screw things up
-/*
-    #[test]
-    fn it_should_create_new_default_config() {
-        env_logger::try_init();
-        let conf = Configuration::new(None); 
-
-        match conf {
-            Ok(v) => {
-                info!("Default Config: {:?}", v);
-            }, 
-            Err(e) => {
-                error!("Error: {}", e);
-                panic!("Failed due to error");
+/// parse cli arguments and/or configuration file if specified/default
+type UrlOrFile = (Option<ConfigFile>, String, Transport);
+fn url_or_file(file: Option<ConfigFile>, url: Option<String>, transport: Option<Transport>)
+               -> Result<UrlOrFile, Error> {
+    match (file, url) {
+        (None, Some(url)) => {
+            let transport = transport.expect("A single url means `node` or `infura` was used");
+            Ok((None, url, transport))
+        },
+        (Some(file), None) => {
+            let default = file.default_ident();
+            let url_info = file.transport(None, |node| node.matches(&default));
+            if url_info.is_err() { // if we couldn't find a node to use, fallback to Infura
+                error!("{}", url_info.expect_err("scope is conditional; qed"));
+                warn!("Could not find a node to use based on default identifier. \
+                       attempting to fall back to Infura");
+                let url = file.infura_url()?;
+                let transport = Transport::Infura;
+                Ok((Some(file), url, transport))
+            } else {
+                let (url, transport) = url_info.expect("Scope is conditional; qed");
+                Ok((Some(file), url, transport))
             }
+        },
+        (f @ Some(_), Some(url)) => {
+            // everything is specified
+            let transport = transport.expect("Everything specified; qed");
+            Ok((f, url, transport))
         }
-    }
-*/
-    #[test]
-    fn it_should_return_default_path() {
-        env_logger::try_init();
-        let path = Configuration::default_path();
-        let path = match path {
-            Ok(p) => p,
-            Err(e) => {
-                error!("Error in test: {}", e);
-                panic!("Failed due to error");
-            }
-        };
-        // TODO: change to make general test #p2 
-        assert_eq!(path.to_str().unwrap(), "/home/insi/.config/absentis.toml");
-    }
-
-    #[test]
-    fn it_should_return_config_from_default_path() {
-        env_logger::try_init();
-        let conf = Configuration::from_default();
-        match conf {
-            Ok(c) =>  {
-                info!("Config: {:?}", c);
-            },
-            Err(e) => {
-                error!("Error in test: {}", e);
-                error!("Cause: {:#?}", e.as_fail());
-                error!("Trace: {:#?}", e.backtrace());
-                panic!("Failed due to error");
-            }
+        _ => {
+            error!("{}", verb_msg!("Must specify one of file or url"));
+            Err(ErrorKind::InvalidConfiguration(ConfMsg::NotFound("Valid Configuration".to_string())).into())
         }
     }
 }
