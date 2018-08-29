@@ -1,4 +1,4 @@
-#![feature(transpose_result)]
+#![feature(transpose_result, test)]
 #[macro_use] mod utils;
 mod types;
 mod conf;

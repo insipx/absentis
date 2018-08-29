@@ -282,6 +282,7 @@ mod tests {
     use super::*;
     use web3::types::Address;
     use crate::conf::Configuration;
+    use test::Bencher;
 
     fn tx_validator(client: &mut Client<web3::transports::http::Http>) -> TransactionValidator {
         match TransactionValidator::new(client,
@@ -322,5 +323,18 @@ mod tests {
             Ok(())
         });
         client.run(fut).unwrap();
+    }
+
+    #[bench]
+    fn bench_scan(b: &mut Bencher) {
+        b.iter(|| {
+            let conf = Configuration::new().expect("Could not create configuration");
+            let mut client = Client::<web3::transports::http::Http>::new_http(&conf).expect("Could not build client");
+            let validator = tx_validator(&mut client);
+            let fut = validator.scan(&client).unwrap().for_each(|inv| {
+                Ok(())
+            });
+            client.run(fut).unwrap();
+        }) 
     }
 }
