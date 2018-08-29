@@ -8,24 +8,23 @@ An Example Configuration file:
 ```toml
 
 [[nodes]]
-type = 'Parity'
-
-[nodes.http]
-url = 'http://localhost'
-port = 8545
-
-[[nodes]]
-type = 'Geth'
+identifier = 'ParityLocal'
+transport = 'Http'
 
 [nodes.http]
 url = 'http://localhost'
 port = 8545
 
 [nodes.ipc]
-path = '/home/insi/some_ipc'
+path = '/home/me/parity/ipc'
 
-[infura]
-api_key = "73746f7020747279696e2064756d6264"
+[[nodes]]
+identifier = 'GethRemoteNode'
+transport = 'Http'
+
+[nodes.http]
+url = 'http://32.0.1.32'
+port = 8545
 
 ```
 
